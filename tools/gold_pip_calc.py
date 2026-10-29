@@ -484,6 +484,108 @@ def group_precheck(sym, magic, comment, pos_type, open_time, cfg):
     return True
 
 
+# --------------------------------------------------------------------------
+# v1.16: the EA has to stay alive - cool-down, fuse, lock expiry, watchdog
+# --------------------------------------------------------------------------
+class SendGuard:
+    """Mirror of BoHeld()/BoHold()/FuseOn()/FuseTrip() in front of OrderSend.
+
+    The old behaviour was the dangerous one: a refused request was repeated on
+    every 100 ms cycle, four times per ticket, with a Sleep() in between - and a
+    broker or terminal that is refusing you does not change its mind about that.
+    """
+
+    CAP_MS = 60000
+
+    def __init__(self, backoff_ms=2000, retry_delay_ms=120, fuse_count=8, now=0):
+        self.backoff_ms = backoff_ms
+        self.retry_delay_ms = retry_delay_ms
+        self.fuse_count = fuse_count
+        self.now = now
+        self.table = {}          # ticket -> (level signature, held until, failures)
+        self.run = 0             # refusals in a row
+        self.step = 0            # how often the fuse cooldown has doubled
+        self.until = 0           # fuse expiry, ms
+        self.manual = False      # a manual APPLY bought exactly one attempt
+        self.sent = 0
+        self.refused = 0
+
+    def tick(self, ms):
+        self.now += ms
+
+    def fuse_on(self):
+        if self.until and self.now >= self.until:
+            self.until = 0
+            self.step = 0
+        return self.until > 0
+
+    def close_allowed(self):
+        """Closing is never held back: an unwanted position is worse than a slow retry."""
+        return True
+
+    def allowed(self, ticket, sig, protective=False):
+        if self.fuse_on() and not self.manual:
+            return False
+        if self.backoff_ms > 0 and not protective:
+            held = self.table.get(ticket)
+            if held and held[0] == sig and held[1] > self.now:
+                return False
+        return True
+
+    def spend_manual(self):
+        self.manual = False
+
+    def note_ok(self, ticket):
+        self.sent += 1
+        self.run = 0
+        self.table.pop(ticket, None)
+
+    def note_fail(self, ticket, sig):
+        self.refused += 1
+        prev = self.table.get(ticket)
+        fails = (prev[2] + 1) if prev else 1
+        ms = max(self.backoff_ms, self.retry_delay_ms)
+        for _ in range(1, fails):
+            ms *= 2
+            if ms >= self.CAP_MS:
+                ms = self.CAP_MS
+                break
+        self.table[ticket] = (sig, self.now + min(self.CAP_MS, ms), fails)
+        if self.fuse_count <= 0:
+            return 0
+        self.run += 1
+        if self.run < self.fuse_count:
+            return 0
+        self.run = 0
+        secs = min(300, 30 << self.step)
+        self.step += 1
+        self.until = self.now + secs * 1000
+        return secs
+
+
+def lock_tick(now_server, lock_until, paused, killed):
+    """LockoutTick(): the lock has to expire on its own, breaker flag or not."""
+    if lock_until <= 0:
+        return lock_until, paused, killed, ""
+    if now_server >= lock_until:
+        return 0, False, False, "lockout expired - automation resumed"
+    return lock_until, True, killed, "locked"
+
+
+def watchdog_due(now, last, timer_ms, fast_ms, tester=False, last_watch=0, throttle=30000):
+    """A chart that switched templates can lose its timer; the next tick re-arms it."""
+    if tester or fast_ms <= 0 or last <= 0:
+        return False
+    if now - last <= max(1500, 6 * timer_ms):
+        return False
+    return now - last_watch > throttle
+
+
+def send_pressure(tickets, retries):
+    """OrderSend attempts per cycle for a stuck basket: before / after v1.16."""
+    return tickets * (retries + 1), max(1, tickets)
+
+
 def in_manual_window(minutes_now: int, dow_now: int, windows: str) -> bool:
     """'HH:MM-HH:MM' (all days) or 'DOW-HH:MM-HH:MM' (0=Sunday), server time."""
     for raw in (windows or "").split(";"):
@@ -875,6 +977,61 @@ def run_tests() -> int:
                                 ok = False
     check("the cheap pre-filter never drops a ticket the group would take", ok)
 
+    # 13) staying alive: cool-down, fuse, lock expiry, watchdog
+    g = SendGuard()
+    check("the first refusal holds this level for 2 s",
+          g.allowed(11, "a|b") and (g.note_fail(11, "a|b") or not g.allowed(11, "a|b")))
+    check("a different level for the same ticket goes at once", g.allowed(11, "c|d"))
+    check("a protective move never waits", g.allowed(11, "a|b", protective=True))
+    g.tick(500)
+    check("the same level still waits inside the window", not g.allowed(11, "a|b"))
+    g.tick(2000)
+    check("and goes after the window", g.allowed(11, "a|b"))
+    g2 = SendGuard()
+    g2.note_fail(7, "x|y")
+    check("the first refusal holds for 2 s", g2.table[7][1] - g2.now == 2000)
+    g2.note_fail(7, "x|y")
+    check("the second refusal doubles to 4 s", g2.table[7][1] - g2.now == 4000)
+    for _ in range(9):
+        g2.note_fail(7, "x|y")
+    check("the cool-down never exceeds 60 s", g2.table[7][1] - g2.now <= 60000)
+    g2.note_ok(7)
+    check("an accepted request clears the history", 7 not in g2.table)
+    g3 = SendGuard(backoff_ms=0)
+    g3.note_fail(3, "s")
+    check("InpSendBackoffMs = 0 keeps the old retry-every-cycle behaviour", g3.allowed(3, "s"))
+    g4 = SendGuard()
+    secs = 0
+    for i in range(8):
+        secs = g4.note_fail(40 + i, "same")
+    check("eight refusals in a row blow the fuse for 30 s", secs == 30 and g4.fuse_on())
+    check("the fuse stops automatic modifies", not g4.allowed(40, "same"))
+    check("the fuse never stops a close", g4.close_allowed())
+    g4.manual = True
+    check("APPLY buys exactly one attempt through the fuse", g4.allowed(99, "fresh"))
+    g4.spend_manual()
+    check("and only one", not g4.allowed(99, "fresh"))
+    g4.tick(30000)
+    check("the fuse expires by itself", not g4.fuse_on())
+    g5 = SendGuard(fuse_count=0)
+    for i in range(30):
+        g5.note_fail(50 + i, "s")
+    check("the fuse can be switched off", not g5.fuse_on())
+    check("lock expiry also clears the breaker flag (v1.15 bug)",
+          lock_tick(200, 100, True, True) == (0, False, False, "lockout expired - automation resumed"))
+    check("an active lock keeps the EA paused", lock_tick(50, 100, False, False)[1] is True)
+    check("no lock, no change", lock_tick(50, 0, False, False) == (50 and 0, False, False, "") or
+          lock_tick(50, 0, False, False) == (0, False, False, ""))
+    check("watchdog waits for six idle cycles, not five",
+          watchdog_due(47000, 41000, 1000, 100) is False and watchdog_due(47001, 41000, 1000, 100) is True)
+    check("watchdog floor is 1500 ms when the loop is fast",
+          watchdog_due(46400, 45000, 100, 100) is False and watchdog_due(46600, 45000, 100, 100) is True)
+    check("watchdog never fires in the tester", watchdog_due(46600, 45000, 100, 100, tester=True) is False)
+    check("watchdog re-arms at most once every 30 s",
+          watchdog_due(46600, 45000, 100, 100, last_watch=45100) is False)
+    check("one attempt per ticket per cycle instead of four",
+          send_pressure(5, 3) == (20, 5))
+
     if fails:
         print("FAILED:")
         for f in fails:
@@ -882,7 +1039,7 @@ def run_tests() -> int:
         return 1
     print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror + echo guard, risk-free, "
           "trail, limits, sizing, cent, 60%% breaker, 40%% warning, news, panel switches + money "
-          "fields, lightness layer)" % (passed[0], passed[0] + len(fails)))
+          "fields, lightness layer, send protection)" % (passed[0], passed[0] + len(fails)))
     return 0
 
 

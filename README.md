@@ -5,6 +5,33 @@
 فایل اصلی: [`MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5`](MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5)
 نسخهٔ نهایی (فایل اکسپرت + مستندات + تصویرها، آمادهٔ دانلود): [`release/GoldBasketGuard/`](release/GoldBasketGuard/)
 
+### تازه‌ها در نسخهٔ ۱.۱۶ — اکسپرت دیگر از کار نمی‌افتد
+
+نشانه‌ای که گزارش دادید («بعد از کمی کار کردن از کار می‌افتد») تقریباً همیشه از یک چیز می‌آید:
+اکسپرت درخواستی را که سرور **رد** کرده بود، در هر چرخه (هر ۱۰۰ میلی‌ثانیه) و برای هر تیکت، با
+چهار تلاش و `Sleep` وسطش، دوباره می‌فرستاد. سرور و خودِ ترمینال دقیقاً همین را تنبیه می‌کنند:
+اکسپرت متوقف می‌شود. نسخهٔ ۱.۱۶ همین را درمان می‌کند و سه قفل گیرکرده را هم باز می‌کند.
+
+- **مکث بعد از رد شدن** (`InpSendBackoffMs=2000`): همان سطحِ ردشده برای همان تیکت دوباره
+  ارسال نمی‌شود؛ با هر رد شدن دو برابر می‌شود (سقف ۶۰ ثانیه). سطح **دیگر** یا حرکتی که فقط
+  محافظت را زیاد می‌کند هرگز معطل نمی‌ماند. `0` = رفتار قبلی.
+- **فیوز فرستادن** (`InpErrorFuseCount=8`): هشت رد شدن پشت سر هم = توقف فرستادنِ خودکار برای
+  ۳۰ ثانیه، هر بار دوبرابر تا سقف ۵ دقیقه، با دلیل روی خط وضعیت پنل. **بستنِ پوزیشن هیچ‌وقت
+  متوقف نمی‌شود** و `APPLY` (کلید `1`) یک تلاش را از فیوز رد می‌کند.
+- **خداحافظ `Sleep` داخل چرخه:** تلاش مجدد فقط برای «قیمت جابه‌جا شد» است و با قیمت تازه؛
+  `TOO_MANY_REQUESTS` و timeout دیگر در همان چرخه چهار بار تکرار نمی‌شوند. نتیجه: اگر سرور
+  یک سبد ۵تیکتهٔ گیرکرده را رد کند، تعداد درخواست در هر چرخه از ۲۰ به ۵ می‌رسد (و بدون خوابیدنِ چرخه).
+- **قفلِ اضطراری حالا خودش باز می‌شود:** در ۱.۱۵ اگر breaker فعال شده بود، `InpEmergencyLockHours`
+  هیچ‌وقت پرچم kill را پاک نمی‌کرد و اکسپرت برای همیشه بی‌کار می‌ماند (فقط `UNLOCK`).
+- **`PAUSE` دیگر به نشست بعدی منتقل نمی‌شود:** یک کلید تصادفیِ `0` روی چارت، اکسپرت را حتی بعد
+  از restart خاموش نگه می‌داشت. حالا pause فقط حالتِ همین اجراست.
+- **نگهبان تایمر:** اگر `OnTimer` از کار بیفتد (تغییر تایم‌فریم/تمپلیت می‌تواند این کار را بکند)
+  اولین تیک تایمر را دوباره فعال می‌کند و در لاگ می‌نویسد.
+- **پنل دیگر بی‌صدا نیست:** خط وضعیت می‌گوید دقیقاً چه چیزی جلو فرستادن را گرفته —
+  `PAUSED - nothing is sent, key 0 or PAUSE resumes`، `KILL/LOCK ACTIVE - UNLOCK (key 7)`،
+  `sending cooldown N s`، و خط عادی حالا `loop 100 ms | cycle 3 ms | sent 12, refused 1` است
+  (دورهٔ واقعی تایمر، نه آنچه در Inputs نوشته‌اید).
+
 ### تازه‌ها در نسخهٔ ۱.۱۵ — سبک‌سازی (هیچ قابلیتی حذف نشد)
 
 - **یک snapshot از حساب در هر چرخه:** موجودی، equity، مارجین‌لول، فری‌مارجین، بودِ اسپرد،
@@ -29,7 +56,7 @@
 
 - **۱۲ کلید روشن/خاموش روی پنل** (صفحهٔ دوم، کلید `8`): میرورینگ، اعمال خودکار، ریسک‌فری، هشدار،
   kill-switch، بریکر، گارد روزانه، خروج پولی، سایز ریسک، تطبیق با بروکر، آلارم‌ها و Dry-Run.
-- **ذخیرهٔ انتخاب‌ها** برای همین حساب و نماد (کلیدها، `PAUSE`، تریلینگ، گارد اخبار، اعداد تایپی) +
+- **ذخیرهٔ انتخاب‌ها** برای همین حساب و نماد (کلیدها، تریلینگ، گارد اخبار، اعداد تایپی +
   دکمهٔ `RESET UI`. بدون فایل پیش‌تنظیم، همان‌طور که قبلاً هم لازم نبود.
 - **`CLOSE 50%`** با درصد دلخواه (کادر `part %`) و **`CLOSE WINNERS`**؛ هر دکمهٔ بستن تایمر تأیید
   مستقل خودش را دارد.
@@ -188,9 +215,11 @@ GOLD BASKET GUARD          XAUUSD | pip = 0.100 (10 pt) | switches
   `OFF*` نشان داده می‌شود و کلیک فقط توضیح می‌نویسد (چرا خاموش است).
 - کلیدهای همین صفحه: `1-9`، `0`، `-`، `=` سوزنی‌اند (به ترتیب بالا)؛ `]` بازگشت، `[` بازگشت به
   `Inputs` (پاک کردن ذخیرهٔ پنل).
-- `PAUSE`، `TRAIL`، `NEWS` و همهٔ اعداد تایپی هم در همین حالت می‌مانند: همه‌چیز در
+- `TRAIL`، `NEWS` و همهٔ اعداد تایپی هم در همین حالت می‌مانند: همه‌چیز در
   `GlobalVariables` با پیشوند `GBG_<login>_<symbol>_` ذخیره می‌شود (خاموش: `InpPersistPanel=false`)
   و بعد از بستن MT5 یا جابه‌جایی چارت برمی‌گردد. `RESET UI` آن را پاک می‌کند.
+  **از ۱.۱۶ `PAUSE` استثناست** و ذخیره نمی‌شود — تصادفی زدنِ کلید `0` نباید اکسپرت را تا
+  ابد خاموش نگه دارد.
 - `MINIMISE` (کلید `9`) پنل را سه‌خطی می‌کند: فقط گروه، درصد ریسک، آخرین اقدام + دکمهٔ بازگشت.
 - جدول کامل هر کلید، کاری که می‌کند و پیش‌شرطش در
   [`docs/GoldBasketGuard-parameters.md`](docs/GoldBasketGuard-parameters.md) است.
@@ -326,7 +355,9 @@ GOLD BASKET GUARD          XAUUSD | pip = 0.100 (10 pt) | switches
 | عدد پیپ به نظر عجیب می‌آید | `InpPipSize` را دستی روی `0.1` (یا `0.01`) قفل کنید |
 | اخبار را نمی‌بیند / `calendar err` | تقویم MT5 هم‌اکنون همگام نشده یا اینترنت/سرور تقویم در دسترس نیست؛ از `InpNewsManualWindows` استفاده کنید. در Strategy Tester تقویم کار نمی‌کند |
 | عدد پول روی حساب سنتی عجیب است | خط اول پنل `(cent)` را چک کنید؛ در صورت لزوم `InpMoneyBasis` را روی `MONEY_ACCOUNT_CCY` بگذارید یا `InpCentDivisor` را اصلاح کنید |
-| اکسپرت قفل شده و کار نمی‌کند | `UNLOCK` (یا کلید `7`) — پس از breaker (۶۰٪) یا حد ضرر روزانه طبیعی است |
+| اکسپرت قفل شده و کار نمی‌کند | `UNLOCK` (یا کلید `7`) — پس از breaker (۶۰٪) یا حد ضرر روزانه طبیعی است. از ۱.۱۶ قفل پس از `InpEmergencyLockHours` ساعت **خودش** باز می‌شود |
+| بعد از مدتی هیچ دستوری نمی‌فرستد | خط آخر پنل را بخوانید: `PAUSED` (کلید `0`)، `KILL/LOCK ACTIVE` (کلید `7`)، `automatic sending on cooldown` (فیوز رد شدن‌ها؛ خودش تمام می‌شود و `APPLY` یک تلاش را رد می‌کند) یا `ALGO TRADING is disabled`. از ۱.۱۶ هیچ‌کدام از این‌ها بی‌صدا نیست |
+| لاگ پر از `modify rejected` است | سرور آن سطح را نمی‌پذیرد. اکسپرت از ۱.۱۶ همان سطح را `InpSendBackoffMs` تکرار نمی‌کند و بعد از `InpErrorFuseCount` رد شدن پشت سر هم خودش ساکت می‌شود؛ علت‌های معمول: `STOPS_LEVEL` بزرگ، `FREEZE_LEVEL`، بازار بسته، یا حسابی که اجازهٔ trading ندارد |
 | چیزی را نبست ولی باید می‌بست | پیش‌فرض فقط در **۶۰٪ ضرر شناور کل حساب** می‌بندد؛ kill-switch، مارجین‌لول و بستن خبری خاموش‌اند. سریع‌ترین راه روشن کردنشان کلید `5` (KILL-SW) یا `6` (BREAKER) در صفحهٔ کلیدهای پنل است؛ راه دیگر `InpEnableKillSwitch=true` یا `InpNewsAction=NEWS_CLOSE_GROUP` |
 | فقط هشدار می‌دهد و نگرانم | طبیعی است: `InpRiskWarnPct=40` از ۴۰٪ به بعد Alarm می‌زند و خط پنل `float -NN% bal` را نشان می‌دهد؛ بستن تا ۶۰٪ انجام نمی‌شود |
 
@@ -336,17 +367,17 @@ GOLD BASKET GUARD          XAUUSD | pip = 0.100 (10 pt) | switches
 
 ```bash
 python3 tools/mql5_lint.py MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   # بررسی ساختار فایل
-python3 tools/gold_pip_calc.py --test                                          # ۱۱۳ بررسی منطقی
+python3 tools/gold_pip_calc.py --test                                          # ۱۳۸ بررسی منطقی
 python3 tools/make_feature_sheet.py                                            # ساخت تصویر قابلیت‌ها
 python3 tools/make_flow_sheet.py                                               # ساخت تصویر عملکرد
 bash tools/setup_render_env.sh                                                 # (یک‌بار) نصب Pillow + فونت Vazirmatn
-python3 tools/make_release.py --check-only                                     # ۲۶ بررسی قبل از انتشار
+python3 tools/make_release.py --check-only                                     # ۳۳ بررسی قبل از انتشار
 python3 tools/make_release.py                                                  # ساخت release/GoldBasketGuard + zip
 ```
 
-پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۲۶ بررسی پاس باشد**
+پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۳۳ بررسی پاس باشد**
 (لینت، تست منطق، تک‌فایل بودن، ASCII بودن، توازن آکولاد، یکتا بودن ورودی‌ها و
-**«قرارداد صفرتنظیم»**: ۴۲ ورودی که باید دقیقاً همان پیش‌فرض‌های آمادهٔ طلا باشند —
+**«قرارداد صفرتنظیم»**: ۴۴ ورودی که باید دقیقاً همان پیش‌فرض‌های آمادهٔ طلا باشند —
 اگر روزی کسی یک پیش‌فرض را عوض کند و اکسپرت دوباره به فایل `.set` نیاز پیدا کند،
 دروازهٔ ریلیز همان لحظه می‌شکند). در `manifest.txt` هم checksum هر فایل و هم لیست
 بررسی‌های پاس‌شده ثبت می‌شود.
@@ -358,12 +389,12 @@ python3 tools/make_release.py                                                  #
 ```
 MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   اکسپرت (تک‌فایل، بدون وابستگی)
 release/GoldBasketGuard/                           نسخهٔ نهایی + manifest + راهنمای نصب
-release/GoldBasketGuard-v1.15.zip                  همان پوشه، آمادهٔ دانلود
+release/GoldBasketGuard-v1.16.zip                  همان پوشه، آمادهٔ دانلود
 docs/GoldBasketGuard-parameters.md                 توضیح تک‌تک ورودی‌ها (فارسی)
 docs/GoldBasketGuard-features-fa.png               نقشهٔ گرافیکی قابلیت‌ها (فارسی)
 docs/GoldBasketGuard-flow-fa.png                   نقشهٔ گرافیکی عملکرد مدیریت سرمایه
 tools/mql5_lint.py                                 لینت سبک MQL5
-tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۱۱۳ بررسی)
+tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۱۳۸ بررسی)
 tools/setup_render_env.sh                          نصب محیط رندر (venv + Pillow + فونت فارسی)
 tools/make_feature_sheet.py                        مولد تصویر قابلیت‌ها (Pillow + Vazirmatn)
 tools/make_flow_sheet.py                           مولد تصویر عملکرد + شبیه‌سازی قوانین تریلینگ
@@ -387,6 +418,7 @@ The release-ready copy of the EA, the Persian parameter reference and both diagr
 - **cent or dollar account detected automatically** (account currency `USD`/`EUR`/… vs `USC`/`Euro Cent`/…), all money inputs converted, so one file works on every broker;
 - optional basket money take/stop, partial volume reduction, a 40% risk warning that closes nothing,
   and one automatic close-all: the account breaker at 60% of balance at risk, chart panel with editable fields, buttons and hotkeys;
+- **v1.16 reliability pass** - the "works for a while, then stops" report: a request the server refused is no longer repeated on every 100 ms cycle with four attempts and a `Sleep()` in between (that is exactly how a broker or the terminal ends up stopping an EA). A rejected level is held back per ticket (`InpSendBackoffMs`, doubling up to 60 s); a run of refusals pauses *automatic* sending behind a fuse (`InpErrorFuseCount`: 30 s, doubling to 300 s) while closing is never delayed and a manual `APPLY` buys one attempt through; retries now happen only for a price that moved, and with a fresh price. A stuck five-ticket cycle costs 5 requests per cycle instead of 20. The emergency lock expires on its own (in v1.15 a breaker trip stayed dead forever), `PAUSE` is no longer restored after a restart, a lost chart timer is re-armed by the next tick, and the panel status line always names what is blocking - `PAUSED`, `KILL/LOCK ACTIVE`, `sending cooldown N s`, `ALGO TRADING is disabled` - next to the loop period actually in force and `sent / refused` counters;
 - **v1.15 lightness pass** (nothing removed): one account snapshot per cycle shared by all guards and invalidated by every order sent, the panel repaints only when its content fingerprint changes (a quiet chart now writes zero chart objects instead of 43 per repaint), the management loop backs off to 1 Hz while the account holds no positions (`InpIdleRefreshMs`) and returns to 100 ms as soon as one opens, cheap group filters run before expensive ones, and terminal flags are read once in `OnInit`. Measured with the new `tools/mql5_cost.py`: 235 -> 201 terminal calls per cycle with five tickets, 1400 -> 126 calls per second on an idle chart, and `tools/make_release.py` now refuses to build a release that exceeds its cost budget;
 - **12 panel switches** (v1.14): mirror, auto-apply, risk-free, warning, kill switch, breaker, daily guard, money exits, risk sizing, adaptive stops, alerts and dry run are toggled on the chart itself; a feature turns off from the panel always, and turns on whenever its Inputs already carry the mode/threshold. Switch state, pause, trail, news and every typed number are remembered per account + symbol, with `RESET UI` to go back to Inputs;
 - one-click partial close (`CLOSE 50%`, percent typed on the panel), `CLOSE WINNERS`, money SL/TP fields converted through the live group volume, and a compact 3-line panel mode;

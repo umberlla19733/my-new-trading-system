@@ -1,14 +1,14 @@
-GoldBasketGuard v1.15
+GoldBasketGuard v1.16
 built 2026-10-29 by tools/make_release.py
 source: MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5
-defaults contract: 42 inputs pinned (no preset files needed)
+defaults contract: 44 inputs pinned (no preset files needed)
 
 files (sha256  size  name):
-71cc69439091b3f4052e4d8e86ba098981014c41b77bf4783ca7be839b135856    949219  GoldBasketGuard-features-fa.png
-40ebb976b4c335aff4db671059e45daf28744ea5eb5f6d987500d4f7ab8272b1    752610  GoldBasketGuard-flow-fa.png
-48eae17f78cf5ebb1abda8f9c69d2d7123032ce845186e2b8bbd39315edc961b     33264  GoldBasketGuard-parameters.md
-31dc8d121080da4c74ba569792d5b2399d918026f09577623716356c449a7794    140399  GoldBasketGuard.mq5
-5fa68e3b7ee30249bedfd942c454f2ad7289772071923601589f610dbf6f47c0      6983  README.md
+2fc227ad44427347cad521f46a77ef0e3e9e5183f3216b95a5fb9455f348f7e8    950398  GoldBasketGuard-features-fa.png
+8614fa3a05565e5393e8f06784858c0679c32195d17c6cb794f2ead4a4a2cd51    798560  GoldBasketGuard-flow-fa.png
+bc77fb763a95950cbbce8f148d3c5a0ce353401a80b561618cbe186450d6dbf4     36037  GoldBasketGuard-parameters.md
+5534803e65301af142e73f52df39064d2caa111dbf3d64b8933ffc6c640624ed    148119  GoldBasketGuard.mq5
+490653ffd66fa8f4e8c0ac090d9ce2985477032aad62312038e6cd5434eb63c3      7601  README.md
 
 checks passed:
 - EA file present — MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5
@@ -16,24 +16,31 @@ checks passed:
 - no tab characters
 - no CRLF line endings
 - no TODO / FIXME / XXX left
-- version property — found 1.15, expected 1.15
-- braces balanced — 360 open / 360 close
-- parens balanced — 2032 open / 2032 close
+- version property — found 1.16, expected 1.16
+- braces balanced — 369 open / 369 close
+- parens balanced — 2111 open / 2111 close
 - input names unique
-- input count sane — 108 inputs
+- input count sane — 110 inputs
 - static lint clean —    clean: blocks balanced, no obvious syntax/API problems
-- logic mirror tests — 113/113 checks passed
-- zero-config contract (42 defaults) — attach with no changes = gold setup, all guards armed
+- logic mirror tests — 138/138 checks passed
+- zero-config contract (44 defaults) — attach with no changes = gold setup, all guards armed
 - panel switches wired to gates (12 switches) — every switch has an input default and is read by a Use*() gate
 - dry run goes through one gate — only DryOn(), the defaults and the panel text read InpDryRun
 - money entry on the panel — SL money and TP money boxes convert through GroupMoneyPerPip()
 - every close button arms on its own — 4 arm timers
 - partial close from the panel — CLOSE PART uses the percent field
-- cycle cost budget (a cycle with a group on it) — RunCycle() with 5 ticket(s): 201 terminal calls on the quiet path [39 object writes, 3 redraws, 7 position reads]
-- cycle cost budget (an idle cycle) — RunCycle() with 0 ticket(s): 126 terminal calls on the quiet path [39 object writes, 3 redraws, 2 position reads]
+- cycle cost budget (a cycle with a group on it) — RunCycle() with 5 ticket(s): 202 terminal calls on the quiet path [39 object writes, 3 redraws, 7 position reads]
+- cycle cost budget (an idle cycle) — RunCycle() with 0 ticket(s): 127 terminal calls on the quiet path [39 object writes, 3 redraws, 2 position reads]
 - panel paints only what changed — a quiet chart must not touch a single chart object
 - panel rows are cached in front of the chart — RowSet() compares before it calls OLabel()
 - an order clears the account snapshot — 4 invalidations: guards never decide on stale equity
 - terminal flags are read once — InTester() must not be an accessor per guard
 - idle loop backs off — one hertz while the chart holds nothing
+- no sleeping inside a live cycle — 1 Sleep site(s): Sleep(50);
+- a refused modify is remembered — cool-down + fuse in front of the retry
+- the cool-down is consulted before sending — the same rejected level cannot be pushed every 100 ms
+- closes are never delayed or fused — an unwanted position is more dangerous than a slow retry
+- an emergency lock expires by itself — InpEmergencyLockHours is a duration, not a life sentence
+- a pause is not carried into the next session — a stray keypress must not disable the EA after a restart
+- a lost timer is re-armed — the watchdog in RunCycle() plus OnInit
 - no preset files to load — removed on purpose

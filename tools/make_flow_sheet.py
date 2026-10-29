@@ -143,7 +143,11 @@ def pipeline(cfg: dict) -> list:
             conds.append(f"margin level < {pnum(ml)}٪")
         steps.append(("بریکر اضطراری", " یا ".join(conds) + "؛ بستن همهٔ پوزیشن‌ها", RED))
     steps.append(("اعمال و قفل",
-                  f"TryModify با retry و رعایت STOPS/FREEZE؛ پس از اضطرار: قفل {pnum(fnum(cfg, 'InpEmergencyLockHours', 24))} ساعت (UNLOCK یا کلید ۷)",
+                  f"TryModify با رعایت STOPS/FREEZE و سقف {pnum(fnum(cfg, 'InpMaxModsPerSecond'))} درخواست در ثانیه؛ "
+                  f"اگر سرور رد کند همان سطح برای همان تیکت {pnum(fnum(cfg, 'InpSendBackoffMs'))} میلی‌ثانیه تکرار نمی‌شود "
+                  f"(با هر رد شدن دو برابر، تا سقف یک دقیقه) و پس از {pnum(fnum(cfg, 'InpErrorFuseCount'))} رد شدن "
+                  f"پشت‌سرهم فرستادن خودکار برای نیم دقیقه ساکت می‌شود — بستن پوزیشن هیچ‌وقت معطل نمی‌ماند. "
+                  f"پس از اضطرار: قفل {pnum(fnum(cfg, 'InpEmergencyLockHours', 24))} ساعت که خودش باز می‌شود (یا UNLOCK / کلید ۷)",
                   GOLD))
     return steps
 

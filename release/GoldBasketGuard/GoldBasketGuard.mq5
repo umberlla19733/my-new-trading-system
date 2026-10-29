@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright   "my-new-trading-system"
 #property link        "https://github.com/umberlla19733/my-new-trading-system"
-#property version   "1.15"
+#property version   "1.16"
 #property description "Group (basket) stop-loss / take-profit manager with automatic risk-free for MT5"
 #property description "Gold / XAUUSD: set TP-SL on ONE ticket, the whole group is aligned to it"
 #property description "News guard (red-folder), risk-percent sizing, cent/dollar auto-detect; closes all at 60% account risk"
@@ -14,6 +14,9 @@
 #property description "v1.14: 12 on/off switches on the chart panel (keys 1-9, 0, -, =), remembered per account+symbol."
 #property description "v1.15: lighter on the terminal - one account snapshot per cycle, the panel paints only"
 #property description "what changed, and a chart with no positions ticks at 1 Hz instead of 10 Hz."
+#property description "v1.16: stays alive - refused requests are held back instead of repeated, a run of"
+#property description "refusals pauses automatic sending on its own, an emergency lock now expires by itself,"
+#property description "a lost timer is re-armed, and PAUSE is no longer remembered across restarts."
 #property description "Not investment advice."
 
 #include <Trade\Trade.mqh>
@@ -158,7 +161,9 @@ input int      InpDeviationPoints        = 30;        // Max deviation / slippag
 input int      InpMaxModsPerSecond       = 25;        // Rate limit of modification requests (0 = no limit)
 input int      InpMinMsPerTicket         = 0;         // Min ms between 2 mods of the same ticket (0 = none)
 input int      InpRetryCount             = 3;         // Retries on requote/busy
-input int      InpRetryDelayMs           = 120;       // Delay between retries (ms, ignored in tester)
+input int      InpRetryDelayMs           = 120;       // Floor for the wait before the same request is tried again (ms)
+input int      InpSendBackoffMs          = 2000;      // After a rejection: hold this ticket+level back, doubling up to 60 s (0 = retry every cycle)
+input int      InpErrorFuseCount         = 8;         // Rejections in a row that pause automatic sending for a while (0 = never)
 input bool     InpRequireNewBar          = false;     // Evaluate only once per new bar
 input int      InpTimerMs                = 100;       // Fast loop period in ms (0 = OnTick only)
 input int      InpIdleRefreshMs          = 1000;      // Loop period in ms while the account holds no positions
@@ -292,6 +297,19 @@ datetime g_a_snow       = 0;         // TimeTradeServer() of this snapshot
 bool     g_a_allowed    = true;      // algo trading on, checked once a second
 long     g_a_allowed_ms = -10000;
 bool     g_is_tester    = false;     // InTester() is an accessor too: read it once
+ulong    g_bo_tk[16];                // tickets with a pending cool-down
+long     g_bo_until[16];             // ms until which the same request is held back
+string   g_bo_sig[16];               // the level that was rejected: a NEW level may go at once
+int      g_bo_fails[16];             // consecutive rejections for that ticket
+int      g_bo_n        = 0;
+long     g_fuse_until  = 0;          // no automatic sending before this moment (ms)
+int      g_fuse_step   = 0;          // how often the cooldown has doubled
+int      g_fuse_cnt    = 0;          // rejections in a row
+bool     g_fuse_clear  = false;      // a manual APPLY overrides the cooldown once
+int      g_send_ok     = 0;          // accepted requests since the panel was opened
+int      g_send_fail   = 0;          // rejected requests since then
+long     g_last_cycle  = 0;          // watchdog: when the last cycle ran
+long     g_watch_ms    = 0;          // when the timer was last re-armed
 string   g_row_txt[14];              // last text written to each panel row
 color    g_row_clr[14];
 bool     g_row_known[14];
@@ -480,7 +498,6 @@ void UiSave()
    GVSet("SW",      (double)(long)g_sw);
    GVSet("TRAILUI", g_trailOn ? 1.0 : 0.0);
    GVSet("NEWSUI",  g_news_enabled ? 1.0 : 0.0);
-   GVSet("PAUSEUI", g_paused ? 1.0 : 0.0);
    GVSet("SLP",     g_slPips);
    GVSet("TPP",     g_tpPips);
    GVSet("BEA",     g_beTrigger);
@@ -508,9 +525,6 @@ void UiLoad()
    g_trailDist    = MathMax(0.0, GVGet("TRD", g_trailDist));
    g_absSl        = GVGet("ABSL", g_absSl);
    g_absTp        = GVGet("ABSTP", g_absTp);
-   g_paused       = (GVGet("PAUSEUI", 0.0) > 0.5);
-   if(g_paused)
-      Log("restored PAUSED from the previous session - press PAUSE (key 0) to run");
    PanelSyncEdits();
   }
 //+------------------------------------------------------------------+
@@ -886,6 +900,16 @@ double AutoPipSize()
 void RunCycle()
   {
    long t0 = NowMs();
+   // If OnTimer stopped firing (a chart switch or a long sleep can do that), the EA
+   // looks dead although it is loaded. Any tick or event re-arms the timer at once.
+   if(g_last_cycle > 0 && !InTester() && InpTimerMs > 0 &&
+      t0 - g_last_cycle > MathMax(1500, 6 * g_timer_ms) && t0 - g_watch_ms > 30000)
+     {
+      g_watch_ms = t0;
+      EventSetMillisecondTimer(g_timer_ms);
+      Log(StringFormat("no cycle for %d ms - the timer was re-armed", (int)(t0 - g_last_cycle)));
+     }
+   g_last_cycle = t0;
    Manage();
    TuneTimer();
    g_last_ms = (int)(NowMs() - t0);
@@ -1868,19 +1892,10 @@ void CloseGroup(int mode, string reason)
          closed++;
          continue;
         }
-      bool done = false;
-      for(int r = 0; r <= InpRetryCount && !done; r++)
-        {
-         done = g_trade.PositionClose(g_pos[i].ticket, (ulong)InpDeviationPoints);
-         if(!done && r < InpRetryCount && !InTester())
-            Sleep(InpRetryDelayMs);
-        }
-      if(done) closed++;
+      if(CloseSingle(g_pos[i].ticket, reason))
+         closed++;
       else
-        {
          failed++;
-         PrintFormat("GoldBasketGuard: close failed #%s retcode=%d", Tk(g_pos[i].ticket), (int)g_trade.ResultRetcode());
-        }
      }
    g_last_action = StringFormat("%s: closed %d, failed %d", reason, closed, failed);
    Log(g_last_action);
@@ -1890,6 +1905,136 @@ void CloseGroup(int mode, string reason)
    CollectGroup();
    ComputeBasket();
    PanelUpdate();
+  }
+//---------------------------------------------------------------------
+//| Send protection. A rejected request used to be repeated on every 100 ms|
+//| cycle, for every ticket, with up to four OrderSend calls and a Sleep() in|
+//| between - which is exactly how an EA ends up refused by the server or|
+//| stopped by the terminal. Now a rejection is remembered, the same request|
+//| waits (doubling, max 60 s), and a run of rejections pauses automatic|
+//| sending for a while. Closing is never delayed and never fused: an|
+//| unwanted position is more dangerous than a slow retry.           |
+//---------------------------------------------------------------------
+void ClampToPad(string sym, bool buy, double &sl, double &tp, int dg)
+  {
+   if(g_stop_pad <= 0 || (sl <= 0.0 && tp <= 0.0))
+      return;
+   double pad = (double)g_stop_pad * PointOf(sym);
+   double bid = BidPx(sym);
+   double ask = AskPx(sym);
+   if(sl > 0.0)
+      sl = buy ? MathMin(sl, bid - pad) : MathMax(sl, ask + pad);
+   if(tp > 0.0)
+      tp = buy ? MathMax(tp, ask + pad) : MathMin(tp, bid - pad);
+   sl = NormalizeDouble(sl, dg);
+   tp = NormalizeDouble(tp, dg);
+  }
+//+------------------------------------------------------------------+
+int BoFind(const ulong tk)
+  {
+   for(int i = 0; i < g_bo_n; i++)
+      if(g_bo_tk[i] == tk)
+         return i;
+   return -1;
+  }
+//---------------------------------------------------------------------
+void BoDrop(const int i)
+  {
+   if(i < 0 || i >= g_bo_n)
+      return;
+   for(int k = i; k < g_bo_n - 1; k++)
+     {
+      g_bo_tk[k]    = g_bo_tk[k+1];
+      g_bo_until[k] = g_bo_until[k+1];
+      g_bo_sig[k]   = g_bo_sig[k+1];
+      g_bo_fails[k] = g_bo_fails[k+1];
+     }
+   g_bo_n--;
+  }
+//---------------------------------------------------------------------
+//| Is this exact request still in its cool-down? A different level for the|
+//| same ticket, or a move that only tightens protection, never waits.|
+//---------------------------------------------------------------------
+bool BoHeld(const ulong tk, const string sig)
+  {
+   if(InpSendBackoffMs <= 0)
+      return false;
+   int i = BoFind(tk);
+   if(i < 0 || g_bo_sig[i] != sig)
+      return false;
+   if(NowMs() >= g_bo_until[i])
+     {
+      BoDrop(i);
+      return false;
+     }
+   return true;
+  }
+//---------------------------------------------------------------------
+void BoHold(const ulong tk, const string sig)
+  {
+   int i = BoFind(tk);
+   if(i < 0)
+     {
+      i = (g_bo_n < 16 ? g_bo_n : g_bo_n - 1);   // small rolling table on purpose
+      g_bo_n = MathMin(16, g_bo_n + 1);
+      g_bo_fails[i] = 0;
+     }
+   g_bo_tk[i]    = tk;
+   g_bo_sig[i]   = sig;
+   g_bo_fails[i]++;
+   long ms = MathMax(InpSendBackoffMs, InpRetryDelayMs);
+   for(int k = 1; k < g_bo_fails[i] && ms < 60000; k++)
+      ms *= 2;
+   g_bo_until[i] = NowMs() + MathMin(60000L, ms);
+  }
+//---------------------------------------------------------------------
+void BoForget(const ulong tk)
+  {
+   int i = BoFind(tk);
+   if(i >= 0)
+      BoDrop(i);
+  }
+//---------------------------------------------------------------------
+//| The fuse: a run of rejections means the server or the terminal is refusing|
+//| us; pushing harder only gets the EA stopped. Automatic sends wait it out.|
+//---------------------------------------------------------------------
+bool FusePending()
+  {
+   return (g_fuse_until > 0 && NowMs() < g_fuse_until);
+  }
+//+------------------------------------------------------------------+
+bool FuseOn()
+  {
+   if(g_fuse_until <= 0)
+      return false;
+   if(NowMs() >= g_fuse_until)
+     {
+      g_fuse_until = 0;
+      g_fuse_step  = 0;
+      g_last_action = "sending cooldown over - the EA sends again";
+      Log(g_last_action);
+      return false;
+     }
+   return true;
+  }
+//---------------------------------------------------------------------
+void FuseTrip(const uint rc)
+  {
+   if(InpErrorFuseCount <= 0)
+      return;
+   g_fuse_cnt++;
+   if(g_fuse_cnt < InpErrorFuseCount)
+      return;
+   g_fuse_cnt = 0;
+   int secs   = 30 << g_fuse_step;
+   if(secs > 300)
+      secs = 300;
+   g_fuse_step++;
+   g_fuse_until = NowMs() + (long)secs * 1000;
+   g_warn = StringFormat("%d requests in a row refused (last retcode %d) - automatic sending pauses %d s (closes still go out; APPLY overrides)",
+                          InpErrorFuseCount, (int)rc, secs);
+   Log(g_warn);
+   Notify(g_warn);
   }
 //+------------------------------------------------------------------+
 //| The single point of truth: send SL/TP for one ticket              |
@@ -1909,19 +2054,7 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
    // widen the guard if this broker is stricter than its own STOPS_LEVEL suggests
    double sl = sl_req;
    double tp = tp_req;
-   if(g_stop_pad > 0 && (sl > 0.0 || tp > 0.0))
-     {
-      double pad = (double)g_stop_pad * pt;
-      double bid = BidPx(sym);
-      double ask = AskPx(sym);
-      bool   buy = (g_pos[i].type == POSITION_TYPE_BUY);
-      if(sl > 0.0)
-         sl = buy ? MathMin(sl, bid - pad) : MathMax(sl, ask + pad);
-      if(tp > 0.0)
-         tp = buy ? MathMax(tp, ask + pad) : MathMin(tp, bid - pad);
-      sl = NormalizeDouble(sl, dg);
-      tp = NormalizeDouble(tp, dg);
-     }
+   ClampToPad(sym, (g_pos[i].type == POSITION_TYPE_BUY), sl, tp, dg);
 
    bool sl_change = (MathAbs(sl - g_pos[i].sl) > dlt);
    bool tp_change = (MathAbs(tp - g_pos[i].tp) > dlt);
@@ -1959,6 +2092,17 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
          return false;
         }
      }
+
+   string sig = StringFormat("%s|%s|%s", DoubleToString(sl,dg), DoubleToString(tp,dg), reason);
+   if(FuseOn() && !g_fuse_clear)
+     {
+      g_info_line = StringFormat("automatic sending on cooldown for %d s (%d requests refused in a row)",
+                                 (int)((g_fuse_until - NowMs()) / 1000 + 1), InpErrorFuseCount);
+      return false;
+     }
+   g_fuse_clear = false;               // a manual APPLY bought exactly one attempt
+   if(!protective && BoHeld(g_pos[i].ticket, sig))
+      return false;                     // this exact request was refused a moment ago
 
    if(!RateLimitOk())
       return false;
@@ -2005,6 +2149,9 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
            }
          g_pos[i].sl = srv_sl;
          g_pos[i].tp = srv_tp;
+         g_send_ok++;
+         g_fuse_cnt = 0;                 // an accepted request ends the bad run
+         BoForget(g_pos[i].ticket);
          SnapReset();                    // the server answered: equity and levels moved
          StRemember(i);
          if(MathAbs(srv_sl - sl) <= g_point * 0.5 && MathAbs(srv_tp - tp) <= g_point * 0.5)
@@ -2016,13 +2163,22 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
                         DoubleToString(old_tp, dg), DoubleToString(tp, dg));
          return true;
         }
-      bool retryable = (rc == TRADE_RETCODE_REQUOTE || rc == TRADE_RETCODE_PRICE_CHANGED ||
-                        rc == TRADE_RETCODE_PRICE_OFF || rc == TRADE_RETCODE_TOO_MANY_REQUESTS ||
-                        rc == TRADE_RETCODE_TIMEOUT || !sent);
-      if(r < InpRetryCount && retryable)
+      // A price that moved is retried at once, and retried with a FRESH price -
+      // the old code slept 120 ms and sent the same stale level again.
+      // "too many requests" and timeouts are not retried inside the cycle at all:
+      // that is the one answer a server does not want, and it is how an EA gets
+      // stopped. They wait for the next cycle, behind the cool-down below.
+      bool reprice = (rc == TRADE_RETCODE_REQUOTE || rc == TRADE_RETCODE_PRICE_CHANGED ||
+                      rc == TRADE_RETCODE_PRICE_OFF);
+      if(r < InpRetryCount && reprice)
         {
-         if(!InTester())
-            Sleep(InpRetryDelayMs);
+         SnapRead();                     // new quotes, then clamp again
+         ClampToPad(sym, (g_pos[i].type == POSITION_TYPE_BUY), sl, tp, dg);
+         continue;
+        }
+      if(r < InpRetryCount && !sent)
+        {
+         Sleep(50);                      // the request never left: one short breather
          continue;
         }
       if(rc == TRADE_RETCODE_INVALID_STOPS && UseAdaptive())
@@ -2042,6 +2198,9 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
       g_warn = StringFormat("#%s modify rejected: retcode %d", Tk(g_pos[i].ticket), (int)rc);
       Print("GoldBasketGuard: " + g_warn + " (sl=" + DoubleToString(sl, dg) +
             " tp=" + DoubleToString(tp, dg) + ")");
+      g_send_fail++;
+      BoHold(g_pos[i].ticket, sig);       // the same level will not be pushed again for a while
+      FuseTrip(rc);
       break;
      }
    return false;
@@ -2136,19 +2295,7 @@ void PruneStickers()
          continue;
       int last = ArraySize(g_st) - 1;
       if(k != last)
-        {
-         g_st[k].ticket  = g_st[last].ticket;
-         g_st[k].sl      = g_st[last].sl;
-         g_st[k].tp      = g_st[last].tp;
-         g_st[k].seen    = g_st[last].seen;
-         g_st[k].seq     = g_st[last].seq;
-         g_st[k].be_done = g_st[last].be_done;
-         g_st[k].seen_ms = g_st[last].seen_ms;
-         g_st[k].req_sl  = g_st[last].req_sl;
-         g_st[k].req_tp  = g_st[last].req_tp;
-         g_st[k].req_ms  = g_st[last].req_ms;
-         g_st[k].pending = g_st[last].pending;
-        }
+         g_st[k] = g_st[last];        // whole struct: nothing can be forgotten
       ArrayResize(g_st, last);
      }
   }
@@ -2412,6 +2559,7 @@ void PanelClearPage()
          continue;
       ObjectDelete(0, nm);
      }
+   PanelForgetRows();              // the objects are gone: forget what they held
   }
 //+------------------------------------------------------------------+
 void PanelShowPage(const int page)
@@ -2615,6 +2763,7 @@ void ReadEdits()
       EditSet("TP", DoubleToString(g_tpPips,1));
       g_last_action = StringFormat("TP money -> %.1f pips", p);
      }
+   g_fuse_clear = true;                   // a trader's own APPLY is never held back
    g_dirty = true;                        // what you typed is worth applying at once
    UiSave();
   }
@@ -2650,7 +2799,9 @@ long PanelSig()
        + (g_news_active ? 128 : 0) + (g_news_calendar ? 256 : 0);
    s = s * 131 + (long)MathRound(g_risk_pct * 10.0) * 977
        + (long)MathRound(g_risk_money * 100.0) + g_news_errno * 13 + g_stop_pad * 7
-       + (long)g_lockout_until / 60 + g_last_ms / 5 * 3 + g_slow_ms / 5;
+       + (long)g_lockout_until / 60 + g_last_ms / 5 * 3 + g_slow_ms / 5
+       + g_send_ok * 31 + g_send_fail * 53 + g_timer_ms
+       + (FusePending() ? (long)((g_fuse_until - NowMs()) / 1000) : 0);
    s = s * 131 + 3 * StrHash(g_last_action) + 11 * StrHash(g_warn)
        + 17 * StrHash(g_info_line) + 23 * StrHash(g_news_desc);
    if(n > 0)                                   // market-sensitive rows only matter with tickets
@@ -2808,9 +2959,15 @@ void PanelUpdate()
                        DryOn() ? "ON" : "off");
    s[10]= StringFormat("act: %s | stops %d pt (+%d ad) | %s", g_last_action,
                        StopsOf(_Symbol), g_stop_pad, g_hedging ? "hedging" : "netting");
-   if(g_paused || g_killed || g_lockout_until > 0 || StringLen(g_warn) > 0 || StringLen(g_info_line) > 0)
+   if(g_paused || g_killed || g_lockout_until > 0 || FusePending() ||
+      StringLen(g_warn) > 0 || StringLen(g_info_line) > 0)
      {
-      string st = (g_killed ? "KILL/LOCK ACTIVE  " : (g_paused ? "PAUSED  " : "")) + g_warn + " " + g_info_line;
+      string st = (g_killed  ? "KILL/LOCK ACTIVE - UNLOCK (key 7) to resume"
+                              : (g_paused ? "PAUSED - nothing is sent, key 0 or PAUSE resumes" : ""))
+                  + (StringLen(g_warn) > 0 ? " " + g_warn : "")
+                  + (StringLen(g_info_line) > 0 ? " " + g_info_line : "");
+      if(FusePending())
+         st = st + StringFormat(" [sending cooldown %d s]", (int)((g_fuse_until - NowMs()) / 1000 + 1));
       if(g_news_errno != 0)
          st = st + StringFormat(" [calendar err %d]", g_news_errno);
       s[11] = st;
@@ -2818,11 +2975,12 @@ void PanelUpdate()
      }
    else
      {
-      string cad = (InpTimerMs > 0 && !InTester()) ? StringFormat("loop %d ms", MathMax(20, InpTimerMs))
+      // the loop period shown is the one actually in force, so the idle back-off is visible
+      string cad = (InpTimerMs > 0 && !InTester()) ? StringFormat("loop %d ms", g_timer_ms)
                                                    : "loop OnTick only";
-      s[11] = (n == 0 ? "waiting for positions of the group"
-                      : StringFormat("%s | cycle %d ms (max %d) | spread %d pt | %s", cad,
-                                     g_last_ms, g_slow_ms, g_a_spread,
+      s[11] = (n == 0 ? StringFormat("%s | waiting for positions of the group", cad)
+                      : StringFormat("%s | cycle %d ms (max %d) | sent %d, refused %d | spread %d pt | %s",
+                                     cad, g_last_ms, g_slow_ms, g_send_ok, g_send_fail, g_a_spread,
                                      g_news_calendar ? "calendar ok" : "calendar unavailable"));
       RowSet(11,s[11],InpClrText);
      }
@@ -3361,13 +3519,7 @@ int CloseAllPositions(string reason)
          closed++;
          continue;
         }
-      bool done = false;
-      for(int r = 0; r <= InpRetryCount && !done; r++)
-        {
-         done = g_trade.PositionClose(t, (ulong)InpDeviationPoints);
-         if(!done && r < InpRetryCount && !InTester())
-            Sleep(InpRetryDelayMs);
-        }
+      bool done = g_trade.PositionClose(t, (ulong)InpDeviationPoints);
       if(done) closed++;
       else
         {
@@ -3491,18 +3643,24 @@ bool CloseSingle(ulong ticket, string reason)
       Log("[dry] would close #" + Tk(ticket) + " (" + reason + ")");
       return true;
      }
-   for(int r = 0; r <= InpRetryCount; r++)
+   if(!RateLimitOk())
+      return false;                       // the group loop shares the same budget
+   if(g_trade.PositionClose(ticket, (ulong)InpDeviationPoints))
      {
-      if(g_trade.PositionClose(ticket, (ulong)InpDeviationPoints))
-        {
-         Log("closed #" + Tk(ticket) + " (" + reason + ")");
-         g_dirty = true;
-         return true;
-        }
-      if(!InTester())
-         Sleep(InpRetryDelayMs);
+      Log("closed #" + Tk(ticket) + " (" + reason + ")");
+      g_dirty = true;
+      g_send_ok++;
+      g_fuse_cnt = 0;
+      BoForget(ticket);
+      return true;
      }
-   return false;
+   uint rc = g_trade.ResultRetcode();
+   g_send_fail++;
+   FuseTrip(rc);
+   g_warn = StringFormat("close refused for #%s (retcode %d) - tried again on the next cycle",
+                         Tk(ticket), (int)rc);
+   Print("GoldBasketGuard: " + g_warn);
+   return false;                          // no Sleep: the cycle that follows is 100 ms away
   }
 //+------------------------------------------------------------------+
 //| Daily loss limit / profit target - circuit breaker for the day    |
@@ -3554,13 +3712,15 @@ void LockoutTick()
       return;
    if(ServerNow() >= g_lockout_until)
      {
-      if(!g_killed)
-        {
-         g_lockout_until = 0;
-         g_paused = false;
-         GVSet("LOCK", 0);
-         Log("lockout expired - automation resumed");
-        }
+      bool was_killed = g_killed;
+      g_lockout_until = 0;
+      g_paused = false;
+      g_killed = false;               // the lock was the only thing holding it: InpEmergencyLockHours
+      GVSet("LOCK", 0);
+      g_last_action = (was_killed ? "emergency lock over - automation resumed"
+                                  : "lockout expired - automation resumed");
+      Log(g_last_action);
+      Notify("GoldBasketGuard: " + g_last_action);
       return;
      }
    g_paused = true;
