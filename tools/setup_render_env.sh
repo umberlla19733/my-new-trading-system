@@ -42,17 +42,25 @@ else
     echo "    download attempt $try failed, retrying in 3 s"
     sleep 3
   done
-  src="$(find "$tmp" -type d -name ttf -path '*fonts*' | head -1)"
-  if [ -z "$src" ]; then
+  # the archive also ships "Round-Dots/fonts/ttf" (files named VazirmatnRound-*.ttf);
+  # picking the first ttf dir used to land there and copy nothing at all
+  src="$(find "$tmp" -type d -path '*/fonts/ttf' ! -path '*Round*' | sort | head -1)"
+  if [ -z "$src" ] || [ ! -f "$src/Vazirmatn-Regular.ttf" ]; then
     echo "    ERROR: Vazirmatn archive not usable - re-run this script (no network?)"
     rm -rf "$tmp"; exit 1
   fi
   for w in Regular Medium SemiBold Bold ExtraBold; do
-    cp "$src/Vazirmatn-$w.ttf" "$FONT_DIR/" 2>/dev/null || echo "    missing weight: $w"
+    if [ -f "$src/Vazirmatn-$w.ttf" ]; then
+      cp "$src/Vazirmatn-$w.ttf" "$FONT_DIR/"
+    else
+      echo "    missing weight: $w"
+    fi
   done
   rm -rf "$tmp"
   got="$(ls "$FONT_DIR"/Vazirmatn-*.ttf 2>/dev/null | wc -l)"
-  [ "$got" -ge 5 ] || { echo "    ERROR: only $got weights installed in $FONT_DIR"; exit 1; }
+  small="$(find "$FONT_DIR" -name 'Vazirmatn-*.ttf' -size -50k 2>/dev/null | wc -l)"
+  [ "$got" -ge 5 ] && [ "$small" -eq 0 ] || {
+    echo "    ERROR: $got weights installed (bad: $small) in $FONT_DIR"; exit 1; }
   echo "    installed: $(ls "$FONT_DIR"/Vazirmatn-*.ttf | xargs -n1 basename | tr '\n' ' ')"
 fi
 

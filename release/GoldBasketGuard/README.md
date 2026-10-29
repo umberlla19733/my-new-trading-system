@@ -1,4 +1,4 @@
-# GoldBasketGuard v1.12 — release folder
+# GoldBasketGuard v1.13 — release folder
 
 این پوشه نسخهٔ نهایی و بررسی‌شدهٔ اکسپرت است. **هیچ فایل پیش‌تنظیمی لازم نیست**:
 همه‌چیز در خود فایل ساخته شده و مقداردهیِ پیش‌فرض برای طلا تنظیم شده است.
@@ -7,7 +7,7 @@
 
 | file | what it is |
 |---|---|
-| `GoldBasketGuard.mq5` | the EA — 2665 lines, 103 inputs, 10 input groups |
+| `GoldBasketGuard.mq5` | the EA — 2703 lines, 104 inputs, 10 input groups |
 | `GoldBasketGuard-parameters.md` | every parameter, Persian reference |
 | `GoldBasketGuard-features-fa.png` | one-image feature sheet (Persian) |
 | `GoldBasketGuard-flow-fa.png` | how the risk engine behaves, tick by tick |
@@ -31,7 +31,7 @@
 - نوع fill مجاز نماد، محدودیت نرخ ارسال دستور، و حضور/عدم حضور تقویم اقتصادی
 - ارز خبر از نام نماد (XAU/GOLD → USD)؛ اگر تقویم در دسترس نبود، پنجرهٔ دستی `InpNewsManualWindows`
 
-### سرعت واکنش (v1.12)
+### سرعت واکنش (v1.13)
 
 - حلقهٔ مدیریت هر `InpTimerMs=100` میلی‌ثانیه اجرا می‌شود (۱۰ چرخه در ثانیه)، نه هر ۱ ثانیه
 - `InpInstantMirror=true`: کشیدن SL/TP روی یک معامله **داخل همان رویداد معامله** به بقیهٔ گروه
@@ -40,6 +40,17 @@
   همان سطحی را که **خودش درخواست کرده** نادیده می‌گیرد، پس تغییر دستی شما گم نمی‌شود
 - `InpMaxModsPerSecond=25` و `InpMinMsPerTicket=0`: یک سبد کامل در یک چرخه صاف می‌شود
 - خط آخر پنل مدت واقعی هر چرخه را نشان می‌دهد: `cycle 1 ms (max 9 ms)`
+
+### سیاست بستن (پیش‌فرض از نسخهٔ 1.13)
+
+- **تنها بستن خودکار:** ضرر شناور **کل حساب** ≥ **۶۰٪ موجودی** → بستنِ همه + قفل اکسپرت
+  (`InpEmergencyFloatLossPct=60`، قفل تا `InpEmergencyLockHours=24` ساعت، `UNLOCK` یا کلید `7` برای باز کردن)
+- **از ۴۰٪ فقط هشدار:** `Alert` + پوش + خط زرد پنل و `float -NN% bal`؛ هیچ دستوری فرستاده نمی‌شود
+  (`InpRiskWarnPct=40`)
+- kill-switch روی درصد equity: **خاموش** (`InpEnableKillSwitch=false`)؛ اگر روشنش کنید آستانه‌اش روی همان ۶۰٪ است
+- بستن بر اساس margin level، free margin و افت equity از سقف: **خاموش** (`0`)
+- گارد اخبار: **فقط هشدار** (`InpNewsAction=NEWS_WARN`)؛ برای بستن قبل از خبر قرمز `NEWS_CLOSE_GROUP` را انتخاب کنید
+- حد ضرر/حد سود گروهی، ریسک‌فری و تریلینگ مثل قبل کار می‌کنند؛ `CLOSE ALL` و `CLOSE LOSERS` فقط با دو کلیک پشت سر هم
 
 قصد معاملاتی (فاصلهٔ حد ضرر/حد سود، آستانهٔ ریسک‌فری، «کدام معاملات گروه من است»)
 تشخیص‌دادنی نیست؛ همان‌ها در پنل روی چارت یا تب Inputs تایپ می‌شوند.
@@ -54,14 +65,14 @@
 - no tab characters
 - no CRLF line endings
 - no TODO / FIXME / XXX left
-- version property — found 1.12, expected 1.12
-- braces balanced — 253 open / 253 close
-- parens balanced — 1453 open / 1453 close
+- version property — found 1.13, expected 1.13
+- braces balanced — 256 open / 256 close
+- parens balanced — 1474 open / 1474 close
 - input names unique
-- input count sane — 103 inputs
+- input count sane — 104 inputs
 - static lint clean —    clean: blocks balanced, no obvious syntax/API problems
-- logic mirror tests — 70/70 checks passed
-- zero-config contract (37 defaults) — attach with no changes = gold setup, all guards armed
+- logic mirror tests — 77/77 checks passed
+- zero-config contract (38 defaults) — attach with no changes = gold setup, all guards armed
 - no preset files to load — removed on purpose
 
 Rebuild this folder any time with:

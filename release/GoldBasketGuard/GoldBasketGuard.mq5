@@ -5,10 +5,10 @@
 //+------------------------------------------------------------------+
 #property copyright   "my-new-trading-system"
 #property link        "https://github.com/umberlla19733/my-new-trading-system"
-#property version     "1.12"
+#property version     "1.13"
 #property description "Group (basket) stop-loss / take-profit manager with automatic risk-free for MT5"
 #property description "Gold / XAUUSD: set TP-SL on ONE ticket, the whole group is aligned to it"
-#property description "News guard (red-folder), risk-percent position sizing, cent/dollar auto-detect, 50% account breaker"
+#property description "News guard (red-folder), risk-percent sizing, cent/dollar auto-detect; closes all at 60% account risk"
 #property description "Zero-config: pip size, stops/freeze levels, hedging/netting and account currency are detected"
 #property description "at start, so no preset file is needed. Sub-second reaction: 100 ms loop + trade-event driven mirroring."
 #property description "Not investment advice."
@@ -122,13 +122,13 @@ input bool     InpTrailFollowGroup       = true;      // Trigger trailing on gro
 input bool     InpTrailMoveTpToo         = false;     // Trail TP as well (rarely useful)
 input double   InpTrailTpDistPips        = 250.0;     // TP distance used when InpTrailMoveTpToo
 
-input group "6) Group money targets / kill-switch"
+input group "6) Group money targets / optional kill-switch (off by default)"
 input bool     InpEnableBasketMoneyExit  = false;     // Close group on money target / money stop
 input double   InpBasketTakeMoney        = 500.0;     // Group take-profit in money
 input double   InpBasketStopMoney        = 500.0;     // Group stop-loss in money (positive number)
 input double   InpEstCommissionPerLot    = 0.0;        // Est. round-turn commission per 1.0 lot (for calc)
-input bool     InpEnableKillSwitch       = true;      // Hard equity guard: close all + stop EA
-input double   InpMaxDrawdownPctEquity   = 12.0;      // If floating loss of group > % equity -> kill switch
+input bool     InpEnableKillSwitch       = false;     // Close-all on group drawdown (OFF: only the 60% account breaker closes)
+input double   InpMaxDrawdownPctEquity   = 60.0;      // If that switch is enabled: % of equity in floating loss (60 = same line as the breaker)
 input bool     InpCloseAllOnKill         = true;      // Kill switch also closes the group
 
 input group "7) Broker safety"
@@ -153,8 +153,8 @@ input bool     InpNewsIncludeModerate    = false;     // Also react to orange (m
 input int      InpNewsBeforeMin          = 20;        // Minutes before the release to react
 input int      InpNewsAfterMin           = 15;        // Minutes after the release to stay defensive
 input string   InpNewsCurrencies         = "";        // Currencies to watch, e.g. "USD,EUR" (empty = from symbol)
-input ENUM_NEWS_ACTION InpNewsAction     = NEWS_CLOSE_GROUP; // What to do inside the window
-input bool     InpNewsPauseAutomation    = true;      // Also suspend SL/TP editing inside the window
+input ENUM_NEWS_ACTION InpNewsAction     = NEWS_WARN; // What to do inside the window (default: warn, never close)
+input bool     InpNewsPauseAutomation    = false;     // Also suspend SL/TP editing inside the window
 input bool     InpNewsTightenBeforeClose  = true;      // Move to risk-free first, then close (if action closes)
 input string   InpNewsManualWindows      = "";        // Fallback windows "[DOW-]HH:MM-HH:MM;..." server time, DOW 0=Sun
 input int      InpNewsRefreshSec         = 30;        // Calendar polling period (seconds, server limit 5204)
@@ -164,9 +164,10 @@ input double   InpRiskPctPerBasket       = 0.0;        // Auto group SL from ris
 input double   InpRiskRewardRatio        = 0.0;        // Auto TP = risk * ratio (0 = keep InpTPPips)
 input double   InpRiskCapPips            = 0.0;        // Max SL pips the auto sizing may use (0 = no cap)
 input double   InpRiskFloorPips          = 80.0;       // Min SL pips the auto sizing may use
-input int      InpEmergencyFloatLossPct  = 50;          // Account floating loss >= percent of balance -> close all (0 = off)
+input double   InpRiskWarnPct            = 40.0;        // Warning only: account floating loss >= % of balance (0 = off, sends nothing)
+input int      InpEmergencyFloatLossPct  = 60;          // THE close-all line: account floating loss >= % of balance (0 = off)
 input double   InpEmergencyEquityDdPct   = 0.0;         // Drawdown from peak equity >= percent -> close all (0 = off)
-input int      InpEmergencyMarginLevelPct= 150;         // Margin level below this percent -> close all (0 = off)
+input int      InpEmergencyMarginLevelPct= 0;           // Margin level below this percent -> close all (0 = off; not used by default)
 input int      InpEmergencyFreeMarginPct = 0;           // Free margin below a share of equity -> close all (0 = off)
 input bool     InpEmergencyStepDown      = false;       // Close the worst ticket first instead of everything
 input int      InpEmergencyLockHours     = 24;          // After an emergency: keep the EA paused for N hours
@@ -240,6 +241,8 @@ string   g_gv_prefix     = "";
 string   g_warn         = "";
 int      g_mod_this_sec = 0;
 long     g_sec_stamp    = 0;
+double   g_risk_pct     = 0.0;       // floating loss of the account, percent of balance
+bool     g_risk_warned  = false;     // warning latched until the loss recovers
 ulong    g_panel_ms     = 0;         // last panel repaint (ms clock)
 int      g_last_ms      = 0;         // duration of the last management cycle (ms)
 int      g_slow_ms      = 0;         // slowest cycle since the terminal was started
@@ -573,6 +576,7 @@ void Manage()
    TouchRateWindow();
    g_warn        = "";
    g_info_line   = "";
+   RiskWarning();                     // read-only: never sends anything
 
    LockoutTick();
    NewsScan();
@@ -1936,10 +1940,11 @@ void PanelUpdate()
                             : StringFormat("news: %s", g_news_desc));
    else
       s[7] = "news: guard OFF";
-   s[8] = StringFormat("margin %.1f%% | free %s | day P/L %s | dd %.1f%%",
+   s[8] = StringFormat("margin %.1f%% | free %s | day P/L %s | dd %.1f%% | float -%.1f%% bal",
                        AccountInfoDouble(ACCOUNT_MARGIN_LEVEL), MoneyStr(AccountInfoDouble(ACCOUNT_MARGIN_FREE)),
                        MoneyStr(DayPnl()),
-                       g_peak_equity > 0 ? (g_peak_equity - AccountInfoDouble(ACCOUNT_EQUITY)) / g_peak_equity * 100.0 : 0.0);
+                       g_peak_equity > 0 ? (g_peak_equity - AccountInfoDouble(ACCOUNT_EQUITY)) / g_peak_equity * 100.0 : 0.0,
+                       g_risk_pct);
    s[9] = StringFormat("spread %d pt | stops %d pt (+%d ad) | freeze %d pt | %s",
                        (int)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD),
                        (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL),
@@ -2485,7 +2490,40 @@ int CloseAllPositions(string reason)
    return closed;
   }
 //+------------------------------------------------------------------+
-//| "50% of the account is at risk" - the hard circuit breaker        |
+//| Read-only risk readout: warns early, closes and sends nothing    |
+//+------------------------------------------------------------------+
+void RiskWarning()
+  {
+   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   double eq  = AccountInfoDouble(ACCOUNT_EQUITY);
+   g_risk_pct = (bal > 0.0 ? MathMax(0.0, (bal - eq) / bal * 100.0) : 0.0);
+   if(InpRiskWarnPct <= 0.0 || bal <= 0.0)
+      return;
+   if(g_risk_pct < InpRiskWarnPct * 0.9)
+     {
+      g_risk_warned = false;                  // recovered: the alert may fire again
+      return;
+     }
+   if(g_risk_pct < InpRiskWarnPct)
+      return;
+   if(!g_risk_warned)
+     {
+      g_risk_warned = true;
+      g_warn = StringFormat("RISK WARNING (nothing was closed): floating loss %.1f%% of balance; all positions are closed only at %.0f%%",
+                            g_risk_pct, (double)InpEmergencyFloatLossPct);
+      Log(g_warn);
+      Alert("GoldBasketGuard: " + g_warn);
+      if(InpPlaySound)
+         PlaySound("alert.wav");
+      if(InpPushNotification)
+         SendNotification("GoldBasketGuard " + g_warn);
+     }
+   else
+      g_info_line = StringFormat("risk %.1f%% of balance (warn %.0f%%, close-all at %.0f%%)",
+                                 g_risk_pct, InpRiskWarnPct, (double)InpEmergencyFloatLossPct);
+  }
+
+//| "60% of the account is at risk" - the hard circuit breaker        |
 //+------------------------------------------------------------------+
 void EmergencyGuard()
   {
