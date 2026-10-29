@@ -1,1 +1,284 @@
 # my-new-trading-system
+
+اکسپرت **GoldBasketGuard** برای متاتریدر ۵ — مدیریت **گروهی** حد سود و حد ضرر + **ریسک‌فری (سربه‌سر) خودکار**، طراحی‌شده برای **طلا (XAUUSD)**.
+
+فایل اصلی: [`MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5`](MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5)
+نسخهٔ نهایی (فایل اکسپرت + پیش‌تنظیم‌ها + مستندات، آمادهٔ دانلود): [`release/GoldBasketGuard/`](release/GoldBasketGuard/)
+
+### نقشهٔ کامل قابلیت‌ها در یک تصویر
+
+![قابلیت‌های GoldBasketGuard](docs/GoldBasketGuard-features-fa.png)
+
+### عملکرد مدیریت سرمایه، تیک‌به‌تیک
+
+![جریان عملکرد اکسپرت](docs/GoldBasketGuard-flow-fa.png)
+
+(هر دو تصویر با اسکریپت ساخته می‌شوند — `tools/make_feature_sheet.py` و
+`tools/make_flow_sheet.py` — با فونت فارسی واقعی، بدون تصویرسازی هوش مصنوعی.
+تصویر دوم عددهایش را از پیش‌تنظیم می‌خواند:
+`python3 tools/make_flow_sheet.py --preset GoldBasketGuard_Grid_Basket` برای پروفایل تهاجمی‌تر.)
+
+---
+
+## ۱) این اکسپرت دقیقاً چه کاری می‌کند
+
+| چیزی که خواستید | کاری که اکسپرت انجام می‌دهد |
+|---|---|
+| حد سود و حد ضرر **گروهی** | همهٔ معاملات یک گروه (بر اساس سمبل / مَجیک / کامنت) در **یک سطح قیمتی مشترک** یا با **فاصلهٔ یکسان** بسته می‌شوند |
+| «با تنظیم یکی از معاملات، همه به یک شکل تنظیم شوند» | اگر **TP یا SL یک معامله را دستی تغییر دهید** (یا پاک کنید)، اکسپرت همان مقدار را روی **همهٔ معاملات گروه** اعمال می‌کند — حالت `Mirror` |
+| تنظیم خودکار حد سود/ضرر با یک عدد | در پنل یا `InpSLPips` / `InpTPPips` فقط یک عدد وارد می‌کنید؛ روی همه اعمال می‌شود + `InpAutoApplyToNew=true` هر پوزیشن جدید را بلافاصله داخل همان گروه می‌گذارد |
+| بعد از چند صد پیپ سود، **فری‌ریسک** شود | `InpBeTriggerPips` (پیش‌فرض ۲۰۰ پیپ روی طلا = ۲۰ دلار حرکت قیمت) → حد ضرر همهٔ معاملات روی **قیمت ورود + قفل سود** (`InpBeLockPips`) قرار می‌گیرد؛ بعد از آن تریلینگ پله‌ای فعال می‌شود |
+| **خروج خودکار قبل از اخبار قرمز (Red Folder)** | با تقویم اقتصادی داخلی MT5: اگر رویداد **High/قرمز** برای USD در `InpNewsBeforeMin` دقیقهٔ بعد باشد، اول ریسک‌فری و بعد **کل گروه یا کل اکانت** بسته می‌شود و تا بعد از خبر ویرایش سطوح متوقف می‌شود |
+| **مدیریت سرمایهٔ حرفه‌ای** | حد ضرر گروه از «٪ ریسک مجاز موجودی»، TP بر مضرب R، حد ضرر/سود روزانه، breaker روی **۵۰٪ به‌خطر افتادن حساب** (بستن همه + قفل)، تشخیص خودکار **حساب سنتی یا دلاری**، و انطباق خودکار با محدودیت‌های کارگزار |
+| اجرا روی طلا | پیپ طلا به‌صورت خودکار `0.10` در نظر گرفته می‌شود، حد فاصلهٔ مجاز کارگزار (`STOPS_LEVEL`) و `FREEZE_LEVEL` رعایت می‌شود، و همهٔ تغییرات با retry و rate-limit ارسال می‌شوند |
+
+نکتهٔ مهم: این ابزار **معامله باز نمی‌کند**. فقط مدیریت معاملات باز (حد سود/ضرر گروهی + ریسک‌فری + تریلینگ + بستن گروه) را انجام می‌دهد و با هر استراتژی/EA دیگری قابل استفاده است.
+
+---
+
+## ۲) پیپ روی طلا در این اکسپرت (حتماً بخوانید)
+
+۱ پیپ = **۰٫۱۰ دلار** از قیمت طلا (۱۰ نقطه در نماد ۲ رقم اعشار).
+
+| پیپ در تنظیمات | حرکت واقعی قیمت طلا |
+|---|---|
+| 100 | ۱۰ دلار (مثلاً ۲۶۵۰ → ۲۶۶۰) |
+| 200 | ۲۰ دلار |
+| 300 | ۳۰ دلار |
+| 500 | ۵۰ دلار |
+
+اگر منظور کارگزار/سیگنال شما «۱ پیپ = ۰٫۰۱ دلار» است، در `InpPipSize` مقدار `0.01` را وارد کنید (یا `0.0` بگذارید تا خودکار حساب شود). عدد پیپِ تشخیص‌داده‌شده در بالای پنل نمایش داده می‌شود.
+
+محاسبهٔ سریع:
+
+```bash
+python3 tools/gold_pip_calc.py --pips 200 --digits 2
+# 200 pips = 20.00 USD of gold price (2000 points), pip = 0.1
+python3 tools/gold_pip_calc.py --move 2650.00 2673.40 --digits 2
+# move 2650.00 -> 2673.40 = +234.0 pips
+```
+
+---
+
+## ۳) نصب (۴ دقیقه)
+
+1. پوشهٔ داده‌های ترمینال را باز کنید: در MT5 منوی `File → Open Data Folder`.
+2. مسیر `MQL5\Experts\` را باز کنید و پوشهٔ `GoldBasketGuard` را داخل آن کپی کنید (یا فقط فایل `GoldBasketGuard.mq5` را داخل `MQL5\Experts\` بگذارید).
+3. متاادیتور را باز کنید، فایل را باز کنید و `F7` (Compile) بزنید. باید `0 errors` بگیرید.
+4. در MT5 روی نمودار **XAUUSD** بکشید و فعال کنید:
+   - دکمهٔ `Algo Trading` در نوار بالا روشن باشد.
+   - در `Tools → Options → Expert Advisors` تیک `Allow algorithmic trading` خورده باشد.
+   - در پنجرهٔ تنظیمات اکسپرت، تب `Common` → `Allow algo trading` تیک بخورد.
+5. فایل آماده از `MQL5\Presets\` را با دکمهٔ `Presets → Load` در پنجرهٔ اکسپرت بارگذاری کنید (یا دستی مقدار بدهید).
+
+### پیش‌نمایش‌های آماده
+
+| فایل | کاربرد |
+|---|---|
+| `GoldBasketGuard_DryRun_Safe.set` | **اول این را تست کنید.** هیچ دستوری به کارگزار فرستاده نمی‌شود، فقط لاگ می‌گیرد (`InpDryRun=true`) |
+| `GoldBasketGuard_XAUUSD_2digits.set` | تنظیم استاندارد طلا (۲ رقم اعشار): SL گروهی ۳۰۰ پیپ، TP گروهی ۵۰۰ پیپ، ریسک‌فری بعد از ۲۰۰ پیپ، تریلینگ پله‌ای، kill-switch روی ۱۲٪ |
+| `GoldBasketGuard_XAUUSD_3digits.set` | همان تنظیم برای کارگزارانی که طلا را ۳ رقمی قیمت می‌دهند |
+| `GoldBasketGuard_Grid_Basket.set` | برای سبدهای شبکه‌ای/میانگین‌گیری: TP/SL یکسان روی کل سبد، ریسک‌فری روی میانگین ورود، بستن ۳۰٪ حجم، هدف/حد پولی سبد، kill-switch |
+
+---
+
+## ۳-ب) شروع سریع برای سناریوی شما (طلا، ۳ تا ۶ معاملهٔ باز)
+
+1. اکسپرت را روی نمودار **XAUUSD** بیندازید و پیش‌نمایش `GoldBasketGuard_XAUUSD_2digits.set` را Load کنید.
+2. در پنل، کادر `SL pips` را مثلاً `300` و `TP pips` را `500` بگذارید و `Enter` بزنید، سپس دکمهٔ **APPLY TP+SL** → حد ضرر روی `میانگین ورود − ۳۰ دلار` و حد سود روی `میانگین ورود + ۵۰ دلار` برای **همه** قرار می‌گیرد (همان قیمت برای همهٔ تیکت‌ها).
+3. از این به بعد کافی است روی **یکی** از معاملات حد سود یا حد ضرر را با ماوس جابه‌جا کنید؛ اکسپرت همان را به بقیه کپی می‌کند و آن مقدار را **یادش می‌ماند** (معاملهٔ جدید بعدی هم همان را می‌گیرد). اگر عدد را دوباره در پنل تایپ کنید، برمی‌گردد به حالت «فاصله بر حسب پیپ».
+4. `BE arm = 200` یعنی وقتی میانگین گروه ۲۰۰ پیپ (۲۰ دلار) در سود رفت، حد ضرر همه روی **ورود + ۱۰ پیپ** می‌نشیند → گروه ریسک‌فری.
+5. `TRAIL` روشن است: از ۲۵۰ پیپ سود به بعد، هر ۳۰ پیپ سود جدید ۳۰ پیپ دیگر قفل می‌شود.
+6. kill-switch روی ۱۲٪ equity: اگر ضرر شناور سبد از ۱۲٪ موجودی عبور کرد، کل گروه بسته و اکسپرت متوقف می‌شود.
+
+قبل از شمارهٔ ۲ می‌توانید یک بار `GoldBasketGuard_DryRun_Safe.set` را اجرا کنید و تب `Experts` را بخوانید تا دقیقاً ببینید چه سطحی می‌فرستد (بدون ارسال هیچ دستوری).
+
+---
+
+## ۴) پنل روی نمودار
+
+```
+GOLD BASKET GUARD                XAUUSD | pip = 0.100 (10 pt)
+group: 4 tickets (4 buy / 0 sell) vol 0.80 | USD
+avg BUY  2641.25  +32.4 pips
+avg SELL -
+basket P/L: 142.30  (swap -1.20)  |  eq 5342.10
+risk at SL: 150.00 (3.00% bal)  =  300.0 pips  |  10.00/pip
+SL 300.0 p -> 2611.25 | TP 500.0 p -> 2691.25
+risk-free: arm 200.0 p, lock 10.0 p, done 3 | trail ON
+news: clear (37 events checked, server time)
+margin 412.5% | free 4980.10 | day P/L -120.40 | dd 1.8%
+spread 25 pt | stops 0 pt (+0 ad) | freeze 0 pt | hedging
+act: auto -> 4 ticket(s) SL 300.0 p / TP 500.0 p
+live | dry-run off | calendar ok
+[SL pips] [TP pips] [BE arm] [BE lock] [Trail dist]
+[APPLY TP+SL] [APPLY SL] [APPLY TP]
+[RISK-FREE NOW] [TRAIL ON/OFF] [CLEAR SL/TP]
+[CLOSE ALL] [CLOSE LOSERS] [PAUSE / RUN]
+[NEWS ON] [UNLOCK]
+```
+
+دو خط مهم: `risk at SL` می‌گوید اگر حد ضرر گروه بخورد دقیقاً چه مبلغی (و چند درصد موجودی) از دست می‌رود؛ `news` وضعیت تقویم اقتصادی و نزدیک‌ترین رویداد را نشان می‌دهد و وقتی در پنجرهٔ خبر باشیم به رنگ نارنجی درمی‌آید.
+
+
+- کادرهای ویرایش‌پذیر: می‌توانید عدد را روی نمودار عوض کنید؛ با زدن `Enter` ذخیره می‌شود و دکمه‌ها از همان عدد استفاده می‌کنند.
+- `CLOSE ALL` و `CLOSE LOSERS` برای ایمنی **دو بار کلیک** می‌خواهند (ظرف ۶ ثانیه).
+- کلیدهای میانبر روی نمودار: `1` اعمال TP+SL، `2` فقط SL، `3` فقط TP، `4` ریسک‌فری فوری، `5` روشن/خاموش کردن تریلینگ، `6` روشن/خاموش کردن گارد اخبار، `7` باز کردن قفل (رفع kill-switch/lockout)، `0` توقف/ادامه.
+
+---
+
+## ۵) روش کار «یکی تنظیم کن، همه تنظیم شوند» (حالت Mirror)
+
+1. `InpMirrorSL` و `InpMirrorTP` را روشن بگذارید (پیش‌فرض روشن است) و `InpMirrorMode = APPLY_SAME_LEVEL`.
+2. روی **یکی** از معاملات گروه، در MT5 حد سود یا حد ضرر را با ماوس بکشید/تغییر دهید.
+3. در یک چرخهٔ بعدی (حداکثر `InpTimerSeconds` ثانیه)، همان قیمت روی **همهٔ معاملات گروه** اعمال می‌شود. اگر حد ضرر را **پاک کنید**، از همه پاک می‌شود.
+4. اگر بخواهید هر معامله به همان اندازه از ورود خودش فاصله داشته باشد (نه یک قیمت مشترک)، `InpMirrorMode` را روی `APPLY_PER_TICKET` بگذارید.
+
+برای جلوگیری از حلقهٔ بازگشتی، تغییراتی که خودِ اکسپرت ایجاد کرده تا `InpMirrorGuardSec` ثانیه نادیده گرفته می‌شود.
+
+**یادداشت مهم:** مقدارِ تنظیم‌شدهٔ دستی «پایدار» است: اکسپرت همان فاصله/قیمت را در حافظهٔ نگه می‌دارد، پس اگر معاملهٔ جدیدی باز شود، او هم همان سطح گروهی را می‌گیرد و تنظیم دستی شما بازنویسی نمی‌شود. فقط ویرایش عدد در پنل (یا تغییر `InpSLPips`/`InpTPPips`) حالت را دوباره به «فاصلهٔ پیپی» برمی‌گرداند.
+
+---
+
+## ۶) ریسک‌فری خودکار (منطق دقیق)
+
+سه حالت اصلی:
+
+| `InpBeMode` | شرط فعال‌شدن | کاربرد |
+|---|---|---|
+| `BE_TICKET_PIPS` | هر معامله جداگانه `InpBeTriggerPips` پیپ در سود برود | وقتی می‌خواهید معاملات سودده تک‌تک قفل شوند |
+| `BE_BASKET_PIPS` (پیش‌فرض) | **میانگین ورود گروه** به اندازهٔ `InpBeTriggerPips` پیپ در سود برود | سبد/شبکه‌ای: کل گروه هم‌زمان ریسک‌فری می‌شود |
+| `BE_BASKET_MONEY` / `BE_BASKET_PCT_EQ` | سود گروه ≥ مبلغ مشخص یا ≥ X٪ موجودیِ حساب | وقتی عدد پیپ مهم نیست و پول ملاک است |
+
+وقتی شرط برقرار شد:
+
+- `InpBeLevel = BELVL_OWN_ENTRY` → حد ضرر **هر معامله روی قیمت ورود خودش + `InpBeLockPips`** (پیش‌فرض ۱۰ پیپ = ۱ دلار طلا) قرار می‌گیرد.
+- `InpBeLevel = BELVL_GROUP_AVG` → حد ضرر همه روی **میانگین وزنی ورود سبد + قفل** (برای سبدهای میانگین‌گیر).
+- حد ضرر **هیچ‌وقت عقب‌تر نمی‌رود**؛ فقط در جهت سود جابه‌جا می‌شود.
+- `InpBeOnlyIfProfitable=true` معاملات هنوز زیان‌ده را دست نمی‌زند (در حالت گروهی).
+- `InpBeOneShot=true` یعنی برای هر معامله فقط یک‌بار این کار انجام می‌شود (برای سبدهای پویا `false` کنید تا با حرکت گروه، حد ضررها هم به‌روز شوند).
+- اختیاری: `InpBeClosePartial=true` هم‌زمان ۳۰٪ حجم سبد را می‌بندد و هشدار/پوش‌نوتیفیکیشن ارسال می‌شود.
+- پس از آن `InpTrailMode` وارد عمل می‌شود (پیش‌فرض `TRAIL_STEP`: قفل سود پله‌ای هر ۳۰ پیپ).
+
+مثال عددی (طلا، ۲ رقم اعشار): میانگین ورود خرید = ۲۶۴۱٫۲۵ —
+ریسک‌فری در ۲۰۰ پیپ → ۲۶۶۱٫۲۵؛ حد ضررها روی ۲۶۵۲٫۲۵ (۱۰ پیپ جلوتر از ورود) می‌نشینند؛ از اینجا به بعد ضرر این سبد صفر است و تریلینگ پله‌ای سود را قفل می‌کند.
+
+---
+
+## ۷) گارد اخبار (Red Folder) — خروج خودکار قبل از خبر خطرناک
+
+اکسپرت از **تقویم اقتصادی داخلی MT5** استفاده می‌کند (`CalendarValueHistory`) — بدون هیچ سرویس خارجی و بدون `WebRequest`.
+
+- فیلتر روی اهمیت: پیش‌فرض فقط **High = قرمز** (`InpNewsImportance`). با `InpNewsIncludeModerate=true` نارنجی‌ها هم لحاظ می‌شوند.
+- ارزها: `InpNewsCurrencies` (پیش‌فرض در فایل‌های آماده `USD`). اگر خالی باشد از نام نماد گرفته می‌شود (XAUUSD → USD). برای طلا همان USD مهم است؛ می‌توانید `USD,EUR,GBP,JPY` بگذارید.
+- پنجرهٔ زمانی: از `InpNewsBeforeMin` دقیقه قبل تا `InpNewsAfterMin` دقیقه بعد از خبر.
+- واکنش (`InpNewsAction`):
+  | مقدار | کار |
+  |---|---|
+  | `NEWS_WARN` | فقط هشدار و لاگ |
+  | `NEWS_RISK_FREE` | همه را ریسک‌فری کن (بستن نمی‌کند) |
+  | `NEWS_CLOSE_LOSING` | فقط زیان‌ده‌های گروه را ببند |
+  | `NEWS_CLOSE_GROUP` | **کل گروه را ببند** (پیش‌فرض) |
+  | `NEWS_CLOSE_ACCOUNT` | **تمام پوزیشن‌های اکانت** را ببند (فرار کامل از نوسان خبر) |
+- `InpNewsTightenBeforeClose=true`: قبل از بستن، هر چه قابل قفل است را قفل می‌کند (اگر قیمت در سود باشد و بستن با اسپرد باز به‌صرفه باشد، ضرر کمتری ثبت می‌شود).
+- `InpNewsPauseAutomation=true`: داخل پنجرهٔ خبر، اعمال/بازنویسی سطوح خودکار متوقف می‌شود (اسپرد لحظهٔ خبر باعث تعقیب حد ضرر نمی‌شود). **اما** ریسک‌فری، kill-switch، breaker و گارد روزنی همیشه فعال‌اند.
+- **زمان‌بندی:** همهٔ توابع تقویم با **زمان سرور ترید** (`TimeTradeServer`) کار می‌کنند — همان ساعتی که در MT5 و در تب Economic calendar می‌بینید. پس اگر خبر ۱۸:۳۰ به وقت سرور است، همین را ملاک بگیرید.
+- **محدودیت تستر:** توابع تقویم در Strategy Tester کار نمی‌کنند. برای تست، از `InpNewsManualWindows` استفاده کنید: `"[DOW-]HH:MM-HH:MM;..."` با زمان سرور، مثلاً `1-14:30-14:45;5-12:00-13:30` (عدد اول = روز هفته، ۰=یکشنبه). این پنجره‌های دستی در حساب واقعی هم کار می‌کنند و در صورت نبودِ تقویم جایگزین می‌شوند.
+- اگر سرور تقویم پاسخ ندهد، اکسپرت در پنل `calendar err <code>` را نشان می‌دهد و به پنجره‌های دستی برمی‌گردد؛ تعداد درخواست‌ها با `InpNewsRefreshSec` (پیش‌فرض ۳۰ ثانیه) محدود می‌شود تا خطای ۵۲۰۴ (محدودیت سرور تقویم) نگیرید.
+
+---
+
+## ۷-ب) مدیریت سرمایهٔ حرفه‌ای که اضافه شد
+
+1. **ریسک از درصد موجودی (نه عدد پیپ):** `InpRiskPctPerBasket=2` یعنی «هر سبد حداکثر ۲٪ موجودی ضرر کند». اکسپرت با توجه به **حجم کل گروه** و **ارزش هر پیپ برای حساب شما**، فاصلهٔ حد ضرر گروهی را خودش حساب می‌کند (`InpRiskFloorPips` و `InpRiskCapPips` به‌عنوان کف و سقف). ویژگی مهم: هرچه سبد بزرگ‌تر (میانگین‌گیری بیشتر)، حد ضرر **نزدیک‌تر** می‌شود تا ریسک ثابت بماند.
+2. **TP بر حسب R:** `InpRiskRewardRatio=1.5` → حد سود = ۱٫۵ برابر ریسک. با تغییر حجم، هر دو عدد خودکار به‌روز می‌شوند.
+3. **Breaker روی ۵۰٪ (درخواست شما):** `InpEmergencyFloatLossPct=50` → اگر ضرر شناور **کل اکانت** به ۵۰٪ موجودی برسد، همهٔ پوزیشن‌های اکانت بسته می‌شود، اکسپرت قفل می‌شود (`UNLOCK` یا کلید `7` برای باز کردن دستی) و تا `InpEmergencyLockHours` ساعت متوقف می‌ماند. سه محرک مستقل دیگر هم دارید:
+   - `InpEmergencyEquityDdPct` : افت equity از ** بیشینهٔ ثبت‌شده** (در فایل تنظیمات اکانت ذخیره می‌شود و با ریستارت اکسپرت صفر نمی‌شود)
+   - `InpEmergencyMarginLevelPct` (پیش‌فرض ۱۵۰٪) : نزدیک‌شدن به Stop Out
+   - `InpEmergencyFreeMarginPct` : کم‌شدن مارجین آزاد
+   `InpEmergencyStepDown=true` = به‌جای بستن همه، یک‌به‌یک بدترینِ ضررده را ببندد تا خطر برطرف شود (مگر آنکه در آستانهٔ استاپ‌اوت باشید که همه بسته می‌شود).
+4. **حد ضرر/سود روزانه:** `InpDailyLossLimitPct=5` و `InpDailyProfitTargetPct=8` → با رسیدن به هرکدام، گروه بسته (اختیاری) و اکسپرت تا شروع روز معاملاتی بعد (نیمه‌شب زمان سرور) متوقف می‌شود. محاسبهٔ سود روز از `equity − موجودی ابتدای روز − واریزی/برداشتی روز` انجام می‌شود، پس جابه‌جایی پول روی آن اثر نمی‌گذارد.
+5. **تشخیص حساب سنتی/دلاری و همهٔ بروکرها:** ارز حساب (`AccountInfoString(ACCOUNT_CURRENCY)`) خوانده می‌شود؛ اگر سنتی باشد (`USC`، `EUC`، `GBC`، …) همهٔ ورودی‌های پولی **خودکار ×۱۰۰** می‌شوند تا شما همان دلار واقعی را تایپ کنید. با `InpMoneyBasis` قابل اجبار است (`MONEY_ACCOUNT_CCY` = همان واحد حساب، `MONEY_REAL_USD` = همیشه واقعی) و `InpCentDivisor` هم قابل تغییر است (کارگزارانی که ضریب ۱۰۰۰ دارند). درصدی بودنِ kill-switch و حد روزنی باعث می‌شود روی حساب سنتی، دلاری، یورویی یا هر ارز دیگری یکسان کار کند.
+6. **سازگاری با محدودیت‌های کارگزار:** `InpAdaptiveStops=true` → اگر سرور سطح را با `invalid stops` رد کرد، حاشیهٔ محافظتی (به پوینت) خودش زیاد می‌شود و دوباره تلاش می‌کند (تا `InpAdaptiveStopsCapPoints`)؛ نتیجه در پنل روی خط `stops 0 pt (+N ad)` دیده می‌شود.
+7. **ضددورزدنی بودن قفل‌ها:** وضعیت قفل و بیشینهٔ equity در GlobalVariable مربوط به شمارهٔ حساب + نماد ذخیره می‌شود؛ با برداشتن و انداختن دوبارهٔ اکسپرت روی چارت، قفل روزنی/اضطراری بازنشانی نمی‌شود.
+
+> توصیهٔ تنظیم برای طلا با حساب ۱۰۰۰ دلاری: `InpRiskPctPerBasket=1.5`، `InpRiskFloorPips=150`، `InpRiskCapPips=600`، `InpRiskRewardRatio=1.5`، `InpNewsBeforeMin=25`، `InpNewsAfterMin=20`، `InpEmergencyFloatLossPct=40`، `InpDailyLossLimitPct=6`.
+
+---
+
+## ۷) نکات ایمنی و محدودیت‌ها
+
+- **اول دمو، بعد لایو.** هیچ ابزاری ضرر را تضمین‌شده نمی‌کند؛ ریسک‌فری یعنی «از این لحظه به بعد ضرر جدید اضافه نمی‌شود»، نه «ضرر قبلی پاک می‌شود».
+- **حساب Netting:** اگر حساب شما یک‌طرفه باشد، عملاً یک پوزیشن دارید و «گروه» همان یک معامله است؛ اکسپرت در پنل عبارت `mode netting` را نشان می‌دهد. برای گروهی‌سازی واقعی حساب **Hedging** لازم است.
+- **حد فاصلهٔ کارگزار:** اگر `STOPS_LEVEL` یا `FREEZE_LEVEL` بزرگ باشد، اکسپرت سطح را اصلاح یا آن تغییر را در چرخهٔ بعدی انجام می‌دهد (لاگ را نگاه کنید).
+- **Spread در طلا:** موقع خبر یا تعویض روز، اسپرد طلا گاهی به چند صد پوینت می‌رسد؛ در این حالت سطوح نزدیک به قیمت ممکن است رد شوند. این رفتار عمدی و ایمن است.
+- **Strategy Tester:** رویداد تایمر در تستر اجرا نمی‌شود؛ اکسپرت در تستر روی هر تیک کار می‌کند. برای دیدن پنل، حالت visual را روشن کنید.
+- **تغییر زمان/تعطیلات:** اکسپرت فقط روی سمبل‌های منطبق با فیلترها عمل می‌کند؛ اگر معامله‌ای را نمی‌بینید، `InpMagicFilter` / `InpCommentFilter` / `InpOnlyAfterAttach` را بررسی کنید (خط `group:` در پنل تعداد معاملات شناسایی‌شده را نشان می‌دهد).
+
+### عیب‌یابی سریع
+
+| علامت | علت / راه‌حل |
+|---|---|
+| پنل می‌گوید `ALGO TRADING is disabled` | دکمهٔ `Algo Trading` ترمینال یا تیک `Allow algo trading` بسته است |
+| `Invalid stops` در لاگ | سطح خیلی نزدیک قیمت است؛ `InpMinStopsPoints` را زیاد کنید یا فاصله‌ها را بزرگ‌تر کنید |
+| حد ضرر گروهی set نمی‌شود | `InpOverwriteExisting=false` و معامله از قبل حد ضرر داشته، یا `InpSLPips=0` |
+| تغییر دستی من روی یک معامله به بقیه اعمال نشد | `InpMirrorSL/TP` خاموش است، یا تغییر داخل `InpMirrorGuardSec` ثانیهٔ اول اتفاق افتاده |
+| عدد پیپ به نظر عجیب می‌آید | `InpPipSize` را دستی روی `0.1` (یا `0.01`) قفل کنید |
+| اخبار را نمی‌بیند / `calendar err` | تقویم MT5 هم‌اکنون همگام نشده یا اینترنت/سرور تقویم در دسترس نیست؛ از `InpNewsManualWindows` استفاده کنید. در Strategy Tester تقویم کار نمی‌کند |
+| عدد پول روی حساب سنتی عجیب است | خط اول پنل `(cent)` را چک کنید؛ در صورت لزوم `InpMoneyBasis` را روی `MONEY_ACCOUNT_CCY` بگذارید یا `InpCentDivisor` را اصلاح کنید |
+| اکسپرت قفل شده و کار نمی‌کند | `UNLOCK` (یا کلید `7`) — پس از kill-switch یا حد ضرر روزانه طبیعی است |
+
+---
+
+## ۸) تست‌ها و ابزارها
+
+```bash
+python3 tools/mql5_lint.py MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   # بررسی ساختار فایل
+python3 tools/gold_pip_calc.py --test                                          # 60 بررسی منطقی
+python3 tools/make_feature_sheet.py                                            # ساخت تصویر قابلیت‌ها
+python3 tools/make_flow_sheet.py --preset GoldBasketGuard_XAUUSD_2digits       # ساخت تصویر عملکرد
+python3 tools/make_release.py --check-only                                     # ۱۳ بررسی قبل از انتشار
+python3 tools/make_release.py                                                  # ساخت release/GoldBasketGuard + zip
+```
+
+پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۱۳ بررسی پاس باشد**
+(لینت، تست منطق، تک‌فایل بودن، یونی‌کد نبودن، توازن آکولاد، یکتا بودن ورودی‌ها،
+و معتبر بودن کلید/مقدار هر ۴ فایل `.set` نسبت به نوع اعلام‌شده). در `manifest.txt`
+هم checksum هر فایل و هم لیست بررسی‌های پاس‌شده ثبت می‌شود.
+
+---
+
+## ۹) ساختار مخزن
+
+```
+MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   اکسپرت (تک‌فایل، بدون وابستگی)
+release/GoldBasketGuard/                           نسخهٔ نهایی + manifest + راهنمای نصب
+release/GoldBasketGuard-v1.10.zip                  همان پوشه، آمادهٔ دانلود
+MQL5/Presets/*.set                                 تنظیمات آماده برای طلا
+docs/GoldBasketGuard-parameters.md                 توضیح تک‌تک ورودی‌ها (فارسی)
+docs/GoldBasketGuard-features-fa.png               نقشهٔ گرافیکی قابلیت‌ها (فارسی)
+docs/GoldBasketGuard-flow-fa.png                   نقشهٔ گرافیکی عملکرد مدیریت سرمایه
+tools/mql5_lint.py                                 لینت سبک MQL5
+tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۶۰ بررسی)
+tools/make_feature_sheet.py                        مولد تصویر قابلیت‌ها (Pillow + Vazirmatn)
+tools/make_flow_sheet.py                           مولد تصویر عملکرد + شبیه‌سازی قوانین تریلینگ
+tools/make_release.py                              دروازهٔ انتشار و ساخت پوشهٔ release
+```
+
+**سلب مسئولیت:** نرم‌افزار آموزشی/کمکی است و توصیهٔ سرمایه‌گذاری نیست. مسئولیت هر معامله با خود کاربر است.
+
+---
+
+## English summary
+
+A single-file MT5 expert advisor that manages a **group (basket) of open positions** on gold (XAUUSD).
+The release-ready copy of the EA, the four presets, the Persian parameter reference and this feature sheet live in [`release/GoldBasketGuard/`](release/GoldBasketGuard/).
+
+- one distance entered once → **SL/TP applied to every ticket** of the group (`APPLY_SAME_LEVEL` = identical price level for all tickets, `APPLY_PER_TICKET` = identical distance from each entry);
+- **mirroring**: change the SL or TP of *one* ticket by hand and the EA copies that level to the whole group (including removal);
+- **automatic risk-free**: after N pips of profit (default 200 pips = $20 on gold) all stop-losses move to entry + lock, then optional step-trailing locks profit;
+- **red-folder news guard**: the built-in MT5 economic calendar (no WebRequest, no external service) — before a HIGH-impact USD event the group is taken to risk-free and then closed (group or whole account), automation paused until the event passes; manual windows can be typed in for brokers without calendar access or for the Strategy Tester;
+- professional money management: SL distance derived from the % of balance you allow per basket, TP as an R multiple, daily loss limit and daily profit target, drawdown-from-peak guard, and a **50% of account at risk → close everything + lock the EA** breaker;
+- **cent or dollar account detected automatically** (account currency `USD`/`EUR`/… vs `USC`/`Euro Cent`/…), all money inputs converted, so one file works on every broker;
+- optional basket money take/stop, kill-switch on % of equity, partial volume reduction, chart panel with editable fields, buttons and hotkeys;
+- broker-aware: stops/freeze levels, deviation, per-ticket cool-down, rate limiting, retries, dry-run mode, hedging vs netting detection.

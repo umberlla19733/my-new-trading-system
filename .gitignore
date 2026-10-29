@@ -1,0 +1,10 @@
+# MetaTrader build artefacts
+*.ex4
+*.ex5
+*.obj
+
+MQL5/Files/
+!MQL5/Presets/
+tests/results/
+**/__pycache__/
+*.pyc
