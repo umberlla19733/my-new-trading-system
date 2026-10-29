@@ -4,9 +4,10 @@ source: MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5
 
 files (sha256  size  name):
 b130cfcd30b210162561269e40130637c8e064e913198eb9d861c0285d4a5fa0    712405  GoldBasketGuard-features-fa.png
+f868da7bb89892b8abe4fb6c7943361e17b99fe8275343cfc069add9fe308309    691026  GoldBasketGuard-flow-fa.png
 3144eeafb53ec4344c4aa352ce0f56035bf3874ee724ecbc1c5cd616af0c5404     23043  GoldBasketGuard-parameters.md
 06e04f75db7a9e0308d829649eac654c076bfca46768668a630cff9aaa6b9db7     98549  GoldBasketGuard.mq5
-47a697d5d9fb0e224a5f79cd693cb82005db5ffae7b8aa313fde1e23a12ed791      2276  README.md
+c9253a04219be401f53ae4a8f90b47fc522ed167d09780834cb3a6ee92287a04      2354  README.md
 31c1900ca35951ea05d65798d567000462a6735b059d27761b79f3324716b7e2      2136  presets/GoldBasketGuard_DryRun_Safe.set
 91782e9c82322e276da36a966b273e255f2864a80eca870e018d391ff3afd802      2194  presets/GoldBasketGuard_Grid_Basket.set
 38824f2f0a8a29e4055e91a412d378ded56ca816ddb6f356d7e8c00f3a47af09      2136  presets/GoldBasketGuard_XAUUSD_2digits.set

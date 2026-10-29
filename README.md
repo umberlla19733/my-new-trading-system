@@ -9,7 +9,14 @@
 
 ![قابلیت‌های GoldBasketGuard](docs/GoldBasketGuard-features-fa.png)
 
-(همین تصویر با `python3 tools/make_feature_sheet.py` ساخته می‌شود — متن واقعی، بدون تصویرسازی هوش مصنوعی.)
+### عملکرد مدیریت سرمایه، تیک‌به‌تیک
+
+![جریان عملکرد اکسپرت](docs/GoldBasketGuard-flow-fa.png)
+
+(هر دو تصویر با اسکریپت ساخته می‌شوند — `tools/make_feature_sheet.py` و
+`tools/make_flow_sheet.py` — با فونت فارسی واقعی، بدون تصویرسازی هوش مصنوعی.
+تصویر دوم عددهایش را از پیش‌تنظیم می‌خواند:
+`python3 tools/make_flow_sheet.py --preset GoldBasketGuard_Grid_Basket` برای پروفایل تهاجمی‌تر.)
 
 ---
 
@@ -229,6 +236,7 @@ live | dry-run off | calendar ok
 python3 tools/mql5_lint.py MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   # بررسی ساختار فایل
 python3 tools/gold_pip_calc.py --test                                          # 60 بررسی منطقی
 python3 tools/make_feature_sheet.py                                            # ساخت تصویر قابلیت‌ها
+python3 tools/make_flow_sheet.py --preset GoldBasketGuard_XAUUSD_2digits       # ساخت تصویر عملکرد
 python3 tools/make_release.py --check-only                                     # ۱۳ بررسی قبل از انتشار
 python3 tools/make_release.py                                                  # ساخت release/GoldBasketGuard + zip
 ```
@@ -249,9 +257,11 @@ release/GoldBasketGuard-v1.10.zip                  همان پوشه، آماد�
 MQL5/Presets/*.set                                 تنظیمات آماده برای طلا
 docs/GoldBasketGuard-parameters.md                 توضیح تک‌تک ورودی‌ها (فارسی)
 docs/GoldBasketGuard-features-fa.png               نقشهٔ گرافیکی قابلیت‌ها (فارسی)
+docs/GoldBasketGuard-flow-fa.png                   نقشهٔ گرافیکی عملکرد مدیریت سرمایه
 tools/mql5_lint.py                                 لینت سبک MQL5
 tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۶۰ بررسی)
 tools/make_feature_sheet.py                        مولد تصویر قابلیت‌ها (Pillow + Vazirmatn)
+tools/make_flow_sheet.py                           مولد تصویر عملکرد + شبیه‌سازی قوانین تریلینگ
 tools/make_release.py                              دروازهٔ انتشار و ساخت پوشهٔ release
 ```
 

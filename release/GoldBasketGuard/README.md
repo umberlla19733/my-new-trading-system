@@ -11,6 +11,7 @@
 | `presets/*.set` | 4 ready-made profiles for gold |
 | `GoldBasketGuard-parameters.md` | every parameter, Persian reference |
 | `GoldBasketGuard-features-fa.png` | one-image feature sheet (Persian) |
+| `GoldBasketGuard-flow-fa.png` | how the risk engine behaves, tick by tick |
 | `manifest.txt` | sha256 of each file + the checks that were run |
 
 ## install / نصب

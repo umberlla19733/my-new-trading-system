@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 EA = ROOT / "MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5"
 PRESET_DIR = ROOT / "MQL5/Presets"
 DOC_DIR = ROOT / "docs"
-SHEET = "GoldBasketGuard-features-fa.png"
+SHEETS = ("GoldBasketGuard-features-fa.png", "GoldBasketGuard-flow-fa.png")
 
 
 # --------------------------------------------------------------------- helpers
@@ -205,7 +205,7 @@ def write_release(version: str, stats: dict, g: Gate, do_zip: bool) -> Path:
     shutil.copy2(EA, out / EA.name)
     for s in sorted(PRESET_DIR.glob("*.set")):
         shutil.copy2(s, out / "presets" / s.name)
-    for name in ("GoldBasketGuard-parameters.md", SHEET):
+    for name in ("GoldBasketGuard-parameters.md", *SHEETS):
         src = DOC_DIR / name
         if src.exists():
             shutil.copy2(src, out / name)
@@ -222,7 +222,8 @@ def write_release(version: str, stats: dict, g: Gate, do_zip: bool) -> Path:
 | `GoldBasketGuard.mq5` | the EA ({stats['lines']} lines, {stats['inputs']} inputs) |
 | `presets/*.set` | {stats['presets']} ready-made profiles for gold |
 | `GoldBasketGuard-parameters.md` | every parameter, Persian reference |
-| `{SHEET}` | one-image feature sheet (Persian) |
+| `GoldBasketGuard-features-fa.png` | one-image feature sheet (Persian) |
+| `GoldBasketGuard-flow-fa.png` | how the risk engine behaves, tick by tick |
 | `manifest.txt` | sha256 of each file + the checks that were run |
 
 ## install / نصب
