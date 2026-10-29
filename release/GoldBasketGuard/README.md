@@ -1,4 +1,4 @@
-# GoldBasketGuard v1.11 — release folder
+# GoldBasketGuard v1.12 — release folder
 
 این پوشه نسخهٔ نهایی و بررسی‌شدهٔ اکسپرت است. **هیچ فایل پیش‌تنظیمی لازم نیست**:
 همه‌چیز در خود فایل ساخته شده و مقداردهیِ پیش‌فرض برای طلا تنظیم شده است.
@@ -7,7 +7,7 @@
 
 | file | what it is |
 |---|---|
-| `GoldBasketGuard.mq5` | the EA — 2526 lines, 101 inputs, 10 input groups |
+| `GoldBasketGuard.mq5` | the EA — 2665 lines, 103 inputs, 10 input groups |
 | `GoldBasketGuard-parameters.md` | every parameter, Persian reference |
 | `GoldBasketGuard-features-fa.png` | one-image feature sheet (Persian) |
 | `GoldBasketGuard-flow-fa.png` | how the risk engine behaves, tick by tick |
@@ -31,6 +31,16 @@
 - نوع fill مجاز نماد، محدودیت نرخ ارسال دستور، و حضور/عدم حضور تقویم اقتصادی
 - ارز خبر از نام نماد (XAU/GOLD → USD)؛ اگر تقویم در دسترس نبود، پنجرهٔ دستی `InpNewsManualWindows`
 
+### سرعت واکنش (v1.12)
+
+- حلقهٔ مدیریت هر `InpTimerMs=100` میلی‌ثانیه اجرا می‌شود (۱۰ چرخه در ثانیه)، نه هر ۱ ثانیه
+- `InpInstantMirror=true`: کشیدن SL/TP روی یک معامله **داخل همان رویداد معامله** به بقیهٔ گروه
+  منتقل می‌شود؛ لازم نیست چرخهٔ بعدی صبر کند، و بازار ساکت هم سرعت را کم نمی‌کند
+- «تغییر دستی» با مقایسهٔ عدد تشخیص داده می‌شود، نه با یک پنجرهٔ چندثانیه‌ای: اکسپرت فقط
+  همان سطحی را که **خودش درخواست کرده** نادیده می‌گیرد، پس تغییر دستی شما گم نمی‌شود
+- `InpMaxModsPerSecond=25` و `InpMinMsPerTicket=0`: یک سبد کامل در یک چرخه صاف می‌شود
+- خط آخر پنل مدت واقعی هر چرخه را نشان می‌دهد: `cycle 1 ms (max 9 ms)`
+
 قصد معاملاتی (فاصلهٔ حد ضرر/حد سود، آستانهٔ ریسک‌فری، «کدام معاملات گروه من است»)
 تشخیص‌دادنی نیست؛ همان‌ها در پنل روی چارت یا تب Inputs تایپ می‌شوند.
 
@@ -44,14 +54,14 @@
 - no tab characters
 - no CRLF line endings
 - no TODO / FIXME / XXX left
-- version property — found 1.11, expected 1.11
-- braces balanced — 242 open / 242 close
-- parens balanced — 1380 open / 1380 close
+- version property — found 1.12, expected 1.12
+- braces balanced — 253 open / 253 close
+- parens balanced — 1453 open / 1453 close
 - input names unique
-- input count sane — 101 inputs
+- input count sane — 103 inputs
 - static lint clean —    clean: blocks balanced, no obvious syntax/API problems
-- logic mirror tests — 60/60 checks passed
-- zero-config contract (30 defaults) — attach with no changes = gold setup, all guards armed
+- logic mirror tests — 70/70 checks passed
+- zero-config contract (37 defaults) — attach with no changes = gold setup, all guards armed
 - no preset files to load — removed on purpose
 
 Rebuild this folder any time with:

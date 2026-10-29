@@ -91,10 +91,10 @@ def pipeline(cfg: dict) -> list:
     news_act = enum_name(cfg, "ENUM_NEWS_ACTION", "InpNewsAction")
     risk_pct = fnum(cfg, "InpRiskPctPerBasket")
     steps = [
-        ("شروع هر تیک", f"OnTick و OnTimer؛ محدودیت نرخ ارسال، و {pnum(fnum(cfg, 'InpMinSecPerTicket'))} ثانیه فاصله برای هر تیکت", GOLD),
+        ("شروع هر تیک", f"OnTick و تایمر {pnum(fnum(cfg, 'InpTimerMs'))} میلی‌ثانیه؛ سقف {pnum(fnum(cfg, 'InpMaxModsPerSecond'))} درخواست تغییر در ثانیه", GOLD),
         ("گروه را پیدا کن", "سمبل + مَجیک + کامنت + جهت + فیلتر زمان؛ تشخیص hedging یا netting", BLUE),
         ("سبد را بساز", "میانگین ورود، حجم کل، پیپ سود/زیان، ریسک روی SL، کمیسیون و swap برآوردی", BLUE),
-        ("ویرایش دستی شده؟", "اگر SL یا TP یک معامله را عوض یا پاک کردی، همان روی همهٔ گروه کپی می‌شود", BLUE),
+        ("ویرایش دستی شده؟", "اگر SL یا TP یک معامله را عوض یا پاک کردی، همان روی همهٔ گروه کپی می‌شود؛ داخل خودِ رویداد معامله، بدون پنجرهٔ کوری چندثانیه‌ای", BLUE),
         ("سطح مطلوب گروه", f"حد ضرر {pnum(sl)} پیپ و حد سود {pnum(tp)} پیپ، در حالت اعمال انتخابی", GOLD),
     ]
     if flag(cfg, "InpNewsEnabled"):

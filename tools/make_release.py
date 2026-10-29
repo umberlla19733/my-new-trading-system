@@ -48,6 +48,13 @@ DEFAULTS_CONTRACT = [
     ("InpAutoApplyOnStart", "true", "levels applied on OnInit"),
     ("InpAutoApplyToNew", "true", "every new ticket joins the group"),
     ("InpOverwriteExisting", "true", "existing SL/TP are aligned, not skipped"),
+    ("InpMirrorSL", "true", "a manual SL drag is mirrored to the whole group"),
+    ("InpMirrorTP", "true", "a manual TP drag is mirrored to the whole group"),
+    ("InpTimerMs", "100", "100 ms loop: sub-second reaction instead of 1 s"),
+    ("InpInstantMirror", "true", "trade events are answered inside the event itself"),
+    ("InpMirrorGuardMs", "250", "own echo suppressed by value, never by a blind seconds window"),
+    ("InpMinMsPerTicket", "0", "no cool-down between two modifications of a ticket"),
+    ("InpMaxModsPerSecond", "25", "fast enough to bring a whole basket in line in one cycle"),
     ("InpSLPips", "300.0", "group stop 300 pips on gold"),
     ("InpTPPips", "500.0", "group target 500 pips on gold"),
     ("InpBeMode", "BE_BASKET_PIPS", "risk-free armed on the basket"),
@@ -255,6 +262,16 @@ def write_release(version: str, stats: dict, g: Gate, do_zip: bool) -> Path:
 - `STOPS_LEVEL` و `FREEZE_LEVEL` کارگزار؛ اگر سرور سطحی را رد کند، حاشیه زیاد و دوباره تلاش می‌شود
 - نوع fill مجاز نماد، محدودیت نرخ ارسال دستور، و حضور/عدم حضور تقویم اقتصادی
 - ارز خبر از نام نماد (XAU/GOLD → USD)؛ اگر تقویم در دسترس نبود، پنجرهٔ دستی `InpNewsManualWindows`
+
+### سرعت واکنش (v{version})
+
+- حلقهٔ مدیریت هر `InpTimerMs=100` میلی‌ثانیه اجرا می‌شود (۱۰ چرخه در ثانیه)، نه هر ۱ ثانیه
+- `InpInstantMirror=true`: کشیدن SL/TP روی یک معامله **داخل همان رویداد معامله** به بقیهٔ گروه
+  منتقل می‌شود؛ لازم نیست چرخهٔ بعدی صبر کند، و بازار ساکت هم سرعت را کم نمی‌کند
+- «تغییر دستی» با مقایسهٔ عدد تشخیص داده می‌شود، نه با یک پنجرهٔ چندثانیه‌ای: اکسپرت فقط
+  همان سطحی را که **خودش درخواست کرده** نادیده می‌گیرد، پس تغییر دستی شما گم نمی‌شود
+- `InpMaxModsPerSecond=25` و `InpMinMsPerTicket=0`: یک سبد کامل در یک چرخه صاف می‌شود
+- خط آخر پنل مدت واقعی هر چرخه را نشان می‌دهد: `cycle 1 ms (max 9 ms)`
 
 قصد معاملاتی (فاصلهٔ حد ضرر/حد سود، آستانهٔ ریسک‌فری، «کدام معاملات گروه من است»)
 تشخیص‌دادنی نیست؛ همان‌ها در پنل روی چارت یا تب Inputs تایپ می‌شوند.

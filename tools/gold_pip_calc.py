@@ -276,6 +276,69 @@ def news_window_hit(event_time: int, now: int, before_min: int, after_min: int) 
     return dt <= before_min * 60 and -dt <= after_min * 60
 
 
+
+class StickerLog:
+    """Mirror of g_st[] + DetectManualEdits() -- which SL/TP diff counts as manual.
+
+    v1.12 rule: our own modify is suppressed by *request identity* (the exact level we
+    asked the server for), never by a blind multi-second window, and the clock used is
+    GetTickCount64() (ms), not TimeCurrent() -- so sparse ticks cannot freeze it and a
+    fast manual drag is never silently dropped.
+    """
+
+    def __init__(self, guard_ms: int = 250):
+        self.guard_ms = guard_ms
+        self.rec: dict[int, dict] = {}
+
+    @staticmethod
+    def same(a: float, b: float, pt: float) -> bool:
+        return abs(a - b) <= pt
+
+    def remember(self, t: "Ticket", now_ms: int = 0, pt: float = 1e-5) -> None:
+        self.rec[t.ticket] = dict(sl=t.sl, tp=t.tp, seen_ms=now_ms,
+                                  req_sl=0.0, req_tp=0.0, req_ms=0, pending=False)
+
+    def mark_sent(self, t: "Ticket", now_ms: int) -> None:
+        """What TryModify() does after the server accepted exactly sl/tp."""
+        r = self.rec[t.ticket]
+        r.update(req_sl=t.sl, req_tp=t.tp, req_ms=now_ms, pending=True)
+
+    def pending_live(self, tk: int, now_ms: int) -> bool:
+        r = self.rec[tk]
+        if not r["pending"]:
+            return False
+        if now_ms - r["req_ms"] > max(500, 4 * self.guard_ms):
+            r["pending"] = False            # the echo never arrived: unblock the ticket
+            return False
+        return True
+
+    def scan(self, tickets: list, now_ms: int, pt: float = 1e-5) -> list:
+        """Tickets the trader really changed -- the EA mirrors exactly those."""
+        edits = []
+        for t in tickets:
+            tk = t.ticket
+            if tk not in self.rec:
+                self.remember(t, now_ms, pt)         # new ticket: just record it
+                continue
+            r = self.rec[tk]
+            sl_diff = not self.same(t.sl, r["sl"], pt)
+            tp_diff = not self.same(t.tp, r["tp"], pt)
+            if not sl_diff and not tp_diff:
+                matched = self.same(t.sl, r["req_sl"], pt) and self.same(t.tp, r["req_tp"], pt)
+                if r["pending"] and (matched or now_ms - r["req_ms"] > self.guard_ms):
+                    r["pending"] = False             # request settled (or the window passed)
+                continue
+            echoed = (r["pending"] and self.same(t.sl, r["req_sl"], pt)
+                      and self.same(t.tp, r["req_tp"], pt))
+            if r["pending"] and not echoed and self.pending_live(tk, now_ms):
+                continue                             # in flight: retry next cycle, never drop
+            r["pending"] = False
+            self.remember(t, now_ms, pt)             # memory holds the trader's values now
+            if echoed:
+                continue                             # that one was ours
+            edits.append(t)
+        return edits
+
 # --------------------------------------------------------------------------
 def _mk() -> Basket:
     b = Basket(pip=0.10, market=2650.00, stops_points=0.0, point=0.01)
@@ -404,12 +467,54 @@ def run_tests() -> int:
     check("15 min after is inside", news_window_hit(t0 - 15 * 60, t0, 20, 15))
     check("16 min after is outside", not news_window_hit(t0 - 16 * 60, t0, 20, 15))
 
+    # 12) mirror echo guard: identity-based, ms clock, never a silent drop
+    b = _mk()
+    st = StickerLog(guard_ms=250)
+    for t in b.tickets:
+        st.remember(t)                                # memory = reality before the apply
+    b.apply_group("APPLY_SAME_LEVEL", sl_pips=500, tp_pips=0)     # EA writes SL to all 3
+    for t in b.tickets:
+        st.remember(t, now_ms=900)                    # TryModify re-reads the accepted level
+        st.mark_sent(t, now_ms=1000)                  # ... and remembers the request
+    check("own echo is not a manual edit", st.scan(b.tickets, now_ms=1040) == [])
+    check("echo cleared the pending flag", all(not st.rec[t.ticket]["pending"] for t in b.tickets))
+    b.tickets[1].sl = 2605.0                          # trader drags SL right after the echo
+    check("edit right after an apply is seen at once",
+          [t.ticket for t in st.scan(b.tickets, now_ms=1080)] == [2])
+    b2 = _mk()
+    st2 = StickerLog(guard_ms=250)
+    for t in b2.tickets:
+        st2.remember(t)
+        st2.mark_sent(t, now_ms=1000)                 # our request is still in flight
+    b2.tickets[2].sl = 2611.0                         # a value we did not ask for
+    check("in-flight edit deferred, not dropped", st2.scan(b2.tickets, now_ms=1040) == [])
+    check("deferred edit mirrored once the echo window passes",
+          [t.ticket for t in st2.scan(b2.tickets, now_ms=2100)] == [3])
+    b3 = _mk()                                        # sparse ticks: TimeCurrent frozen
+    st3 = StickerLog(guard_ms=250)
+    for t in b3.tickets:
+        st3.remember(t, now_ms=5000)
+    b3.tickets[0].tp = 2700.0
+    check("ms clock sees the edit even without a new tick",
+          [t.ticket for t in st3.scan(b3.tickets, now_ms=5100)] == [1])
+    check("adopted value does not loop", st2.scan(b2.tickets, now_ms=2200) == [])
+    check("pending cleared when the edit is adopted", not st2.rec[3]["pending"])
+    b4 = _mk()                                        # broker snapped our level by 1 point
+    b4.tickets[0].sl = b4.tickets[0].sl - 0.001
+    st4 = StickerLog(guard_ms=250)
+    for t in b4.tickets:
+        st4.remember(t, now_ms=0)                     # memory = what the server accepted
+        st4.mark_sent(t, now_ms=0)                    # request = what we asked for
+    check("snapped level settles without a correction loop",
+          st4.scan(b4.tickets, now_ms=400) == [] and st4.scan(b4.tickets, now_ms=500) == [])
+    check("echo window closes on its own", all(not st4.rec[t.ticket]["pending"] for t in b4.tickets))
+
     if fails:
         print("FAILED:")
         for f in fails:
             print("  - " + f)
         return 1
-    print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror, risk-free, trail, limits, sizing, cent, breaker, news)"
+    print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror + echo guard, risk-free, trail, limits, sizing, cent, breaker, news)"
           % (passed[0], passed[0] + len(fails)))
     return 0
 

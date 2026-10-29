@@ -1,14 +1,14 @@
-GoldBasketGuard v1.11
+GoldBasketGuard v1.12
 built 2026-10-29 by tools/make_release.py
 source: MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5
-defaults contract: 30 inputs pinned (no preset files needed)
+defaults contract: 37 inputs pinned (no preset files needed)
 
 files (sha256  size  name):
-84118203dbf37847bb2df513667a3a88c9778212bc5b8deb26eefe147822069c    716715  GoldBasketGuard-features-fa.png
-670f0ba886b9a4086e235704287a13683163192178b105800545dec653a2d5dd    681874  GoldBasketGuard-flow-fa.png
-7fbe176c9114082d2a28f2645764effbdbf004327764e1b76e87bdecd5014107     23764  GoldBasketGuard-parameters.md
-33fcf5edf02fa5eb5e12f97c60c4ee573c27079679829d3a5e8569830b74815d     98750  GoldBasketGuard.mq5
-1f5bd1197e83182346dcbcd630d1d31fba28f23d994e489e42f8082076e40275      3664  README.md
+f265f3f186088497d428292f302d4675bd3f24ee7ebddd183c2fb829b2948ebc    719235  GoldBasketGuard-features-fa.png
+76372d9213b467a2d6b7e46ea4906ee0d84aba6c97f5a74867058689be1125a7    690062  GoldBasketGuard-flow-fa.png
+81817ffa6046ef5a1e24ff037d9106bf67fea4150f57bff6b3670e3657661791     25672  GoldBasketGuard-parameters.md
+7b4682b915338024e6a3b41944dd3e5003823ab54d914440efcac7633a979544    105363  GoldBasketGuard.mq5
+34b35b3e41a5edc063696480cd5e689ae5f7afbd0da44ff7968a2b7cfd2ad004      4670  README.md
 
 checks passed:
 - EA file present — MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5
@@ -16,12 +16,12 @@ checks passed:
 - no tab characters
 - no CRLF line endings
 - no TODO / FIXME / XXX left
-- version property — found 1.11, expected 1.11
-- braces balanced — 242 open / 242 close
-- parens balanced — 1380 open / 1380 close
+- version property — found 1.12, expected 1.12
+- braces balanced — 253 open / 253 close
+- parens balanced — 1453 open / 1453 close
 - input names unique
-- input count sane — 101 inputs
+- input count sane — 103 inputs
 - static lint clean —    clean: blocks balanced, no obvious syntax/API problems
-- logic mirror tests — 60/60 checks passed
-- zero-config contract (30 defaults) — attach with no changes = gold setup, all guards armed
+- logic mirror tests — 70/70 checks passed
+- zero-config contract (37 defaults) — attach with no changes = gold setup, all guards armed
 - no preset files to load — removed on purpose
