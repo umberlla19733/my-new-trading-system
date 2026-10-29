@@ -188,6 +188,95 @@ class Basket:
 
 
 # --------------------------------------------------------------------------
+#  Risk sizing, cent accounts and the emergency breaker (mirrored from MQL5)
+# --------------------------------------------------------------------------
+def money_per_pip(vol_total: float, pip: float, tick_size: float, tick_value: float) -> float:
+    """Account-currency value of 1 pip for the whole basket."""
+    if tick_size <= 0 or tick_value <= 0 or vol_total <= 0:
+        return 0.0
+    return vol_total * (pip / tick_size) * tick_value
+
+
+def auto_sl_pips(balance: float, risk_pct: float, mpp: float, floor_pips: float, cap_pips: float) -> float:
+    if mpp <= 0 or risk_pct <= 0:
+        return 0.0
+    pips = (balance * risk_pct / 100.0) / mpp
+    if cap_pips > 0:
+        pips = min(pips, cap_pips)
+    if floor_pips > 0:
+        pips = max(pips, floor_pips)
+    return pips
+
+
+def money_factor(cent: bool, basis: str, divisor: float = 100.0) -> float:
+    """What the numbers you type mean on a cent vs a dollar account."""
+    if basis == "ACCOUNT_CCY":
+        return 1.0
+    if basis == "REAL_USD":
+        return divisor
+    return divisor if cent else 1.0          # AUTO
+
+
+def is_cent_currency(ccy: str) -> bool:
+    up = (ccy or "").upper()
+    return up in {"USC", "EUC", "GBC", "RUC", "AUC", "JYC", "CHC", "BRC"} or "CENT" in up
+
+
+def emergency_hit(balance: float, equity: float, margin_level: float, free_margin: float,
+                  loss_pct: float, ml_limit: float, fm_pct: float, peak_equity: float = 0.0,
+                  dd_pct: float = 0.0) -> str:
+    fl = equity - balance
+    if loss_pct > 0 and balance > 0 and fl <= -balance * loss_pct / 100.0:
+        return "floating loss %.2f = %.1f%% of balance" % (fl, -fl / balance * 100.0)
+    if dd_pct > 0 and peak_equity > 0 and equity < peak_equity * (1 - dd_pct / 100.0):
+        return "equity drawdown %.1f%% from peak" % ((peak_equity - equity) / peak_equity * 100.0)
+    if ml_limit > 0 and margin_level > 0 and margin_level <= ml_limit:
+        return "margin level %.1f%%" % margin_level
+    if fm_pct > 0 and equity > 0 and free_margin <= equity * fm_pct / 100.0:
+        return "free margin %.1f%% of equity" % (free_margin / equity * 100.0)
+    return ""
+
+
+def in_manual_window(minutes_now: int, dow_now: int, windows: str) -> bool:
+    """'HH:MM-HH:MM' (all days) or 'DOW-HH:MM-HH:MM' (0=Sunday), server time."""
+    for raw in (windows or "").split(";"):
+        w = raw.strip()
+        if len(w) < 5:
+            continue
+        seg = w.split("-")
+        dow = -1
+        if len(seg) == 3:
+            dow = int(seg[0])
+            seg = seg[1:]
+        elif len(seg) != 2:
+            continue
+        if dow >= 0 and dow != dow_now:
+            continue
+        def to_min(x):
+            parts = x.split(":")
+            if len(parts) != 2:
+                return -1
+            h, m = int(parts[0]), int(parts[1])
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                return -1
+            return h * 60 + m
+        a, b = to_min(seg[0]), to_min(seg[1])
+        if a < 0 or b < 0:
+            continue
+        if b < a:                                   # wraps past midnight
+            if minutes_now >= a or minutes_now <= b:
+                return True
+        elif a <= minutes_now <= b:
+            return True
+    return False
+
+
+def news_window_hit(event_time: int, now: int, before_min: int, after_min: int) -> bool:
+    dt = event_time - now
+    return dt <= before_min * 60 and -dt <= after_min * 60
+
+
+# --------------------------------------------------------------------------
 def _mk() -> Basket:
     b = Basket(pip=0.10, market=2650.00, stops_points=0.0, point=0.01)
     b.tickets = [Ticket(1, "BUY", 2630.00, 0.10), Ticket(2, "BUY", 2640.00, 0.20), Ticket(3, "BUY", 2645.00, 0.10)]
@@ -270,12 +359,57 @@ def run_tests() -> int:
     check("no bogus level written", b6.tickets[0].sl == 0.0)
     check("TP pushed by stops level", b6.tickets[0].tp >= 2600.0 + 20 * 0.01)
 
+    # 8) risk sizing: % of balance -> pips, with cap/floor and R multiple
+    mpp = money_per_pip(vol_total=0.4, pip=0.10, tick_size=0.01, tick_value=1.0)
+    # 0.4 lot of gold: 1 tick (0.01) = $1 per lot -> 1 pip (0.10) = $10 per lot -> $4 for 0.4 lot
+    check("money per pip = 4 USD for 0.4 lot", abs(mpp - 4.0) < 1e-9)
+    pips = auto_sl_pips(balance=10000, risk_pct=1.0, mpp=mpp, floor_pips=80, cap_pips=0)
+    check("1% of 10k = 25 pips -> floored to 80", abs(pips - 80.0) < 1e-9)
+    pips2 = auto_sl_pips(balance=10000, risk_pct=30.0, mpp=mpp, floor_pips=80, cap_pips=400)
+    check("cap respected (3000/4=750 -> 400)", abs(pips2 - 400.0) < 1e-9)
+    pips3 = auto_sl_pips(balance=10000, risk_pct=2.0, mpp=mpp, floor_pips=0, cap_pips=0)
+    check("2% of 10k = 50 pips on 0.4 lot", abs(pips3 - 50.0) < 1e-9)
+    check("bigger basket -> tighter SL (same risk)",
+          auto_sl_pips(10000, 2.0, money_per_pip(0.8, 0.10, 0.01, 1.0), 0, 0) < pips3)
+
+    # 9) cent account detection + money units
+    check("USC is cent", is_cent_currency("USC"))
+    check("USD is not cent", not is_cent_currency("USD"))
+    check("CentUSD detected", is_cent_currency("CentUSD"))
+    check("AUTO on cent -> x100", money_factor(True, "AUTO") == 100.0)
+    check("AUTO on dollar -> x1", money_factor(False, "AUTO") == 1.0)
+    check("ACCOUNT_CCY never converts", money_factor(True, "ACCOUNT_CCY") == 1.0)
+    check("REAL_USD forces x100", money_factor(False, "REAL_USD") == 100.0)
+
+    # 10) the "50% of the account is at risk" breaker
+    check("50% floating loss trips", "floating loss" in emergency_hit(2000, 1000, 200, 500, 50, 150, 0))
+    check("25% floating loss does not trip", emergency_hit(2000, 1500, 200, 500, 50, 0, 0) == "")
+    check("margin level trips", "margin level" in emergency_hit(2000, 1900, 140, 100, 0, 150, 0))
+    check("free margin trips", "free margin" in emergency_hit(2000, 1900, 0, 50, 0, 0, 10))
+    check("peak drawdown trips", "drawdown" in emergency_hit(2000, 1900, 0, 0, 0, 0, 0, peak_equity=4000, dd_pct=50))
+    check("peak drawdown not tripped at exactly 50%", "drawdown" not in emergency_hit(2000, 2000.0, 0, 0, 0, 0, 0, peak_equity=4000, dd_pct=50))
+    check("nothing to guard when off", emergency_hit(2000, 1000, 100, 0, 0, 0, 0) == "")
+
+    # 11) manual news windows (tester fallback), server time
+    win = "1-14:30-14:45;5-12:00-13:30"
+    check("inside window", in_manual_window(14 * 60 + 35, 1, win))
+    check("outside window", not in_manual_window(14 * 60 + 50, 1, win))
+    check("wrong day ignored", not in_manual_window(14 * 60 + 35, 3, win))
+    check("other day window works", in_manual_window(12 * 60 + 30, 5, win))
+    check("malformed segment ignored", not in_manual_window(12 * 60 + 30, 5, "5:12:00-13:30"))
+    check("overnight wrap", in_manual_window(23 * 60 + 50, 1, "22:00-01:00") and in_manual_window(30, 1, "22:00-01:00"))
+    t0 = 1_700_000_000
+    check("20 min before is inside", news_window_hit(t0 + 20 * 60, t0, 20, 15))
+    check("21 min before is outside", not news_window_hit(t0 + 21 * 60, t0, 20, 15))
+    check("15 min after is inside", news_window_hit(t0 - 15 * 60, t0, 20, 15))
+    check("16 min after is outside", not news_window_hit(t0 - 16 * 60, t0, 20, 15))
+
     if fails:
         print("FAILED:")
         for f in fails:
             print("  - " + f)
         return 1
-    print("GoldBasketGuard logic: %d/%d checks passed (group TP/SL, mirroring, risk-free, trailing, broker limits)"
+    print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror, risk-free, trail, limits, sizing, cent, breaker, news)"
           % (passed[0], passed[0] + len(fails)))
     return 0
 

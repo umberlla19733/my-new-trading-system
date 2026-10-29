@@ -1,14 +1,14 @@
-; GoldBasketGuard preset - DRY RUN: nothing is sent to the broker, the EA only logs what it would do.
-; Load in MT5: Experts list -> right click -> Properties -> Common tab is not enough:
-; use the "Presets" button in the EA dialog -> Load. Values are also listed in docs/.
-;--- group ---
+; GoldBasketGuard preset - XAUUSD, 2 decimals - DRY RUN (nothing is sent)
+; DRY RUN: nothing is sent to the broker, the EA only logs its decisions.
+; News guard warns only, breaker and money exits are off. Use this first, on demo.
+; Load: EA properties dialog -> button [Presets] -> Load -> choose this file.
+; Every value is documented in docs/GoldBasketGuard-parameters.md
 InpMagicFilter=0
 InpOnlyThisChartSymbol=true
 InpIncludeBuy=true
 InpIncludeSell=true
 InpOnlyAfterAttach=false
-;--- group TP / SL ---
-InpApplyMode=0
+InpApplyMode=1
 InpSLPips=300.0
 InpTPPips=500.0
 InpOverwriteExisting=true
@@ -17,14 +17,12 @@ InpAutoApplyOnStart=true
 InpReapplyEveryCycle=false
 InpAbsSLPrice=0.0
 InpAbsTPPrice=0.0
-;--- mirror one edit to all ---
 InpMirrorSL=true
 InpMirrorTP=true
 InpMirrorMode=1
 InpMirrorGuardSec=4
-;--- risk free ---
 InpBeMode=2
-InpBeTriggerPips=150.0
+InpBeTriggerPips=200.0
 InpBeLockPips=10.0
 InpBeLevel=0
 InpBeOnlyIfProfitable=true
@@ -32,20 +30,17 @@ InpBeOneShot=true
 InpBeClosePartial=false
 InpBeClosePartialPct=30.0
 InpBeUseHardTpInstead=false
-;--- trailing ---
-InpTrailMode=0
+InpTrailMode=1
 InpTrailStartPips=250.0
 InpTrailStepPips=30.0
 InpTrailMinPips=40.0
 InpTrailFollowGroup=true
 InpTrailMoveTpToo=false
-;--- money ---
 InpEnableBasketMoneyExit=false
 InpEstCommissionPerLot=0.0
 InpEnableKillSwitch=true
 InpMaxDrawdownPctEquity=12.0
 InpCloseAllOnKill=true
-;--- broker safety (gold) ---
 InpPipSize=0.1
 InpMinStopsPoints=0
 InpMinDeltaPoints=2
@@ -57,7 +52,34 @@ InpRetryDelayMs=350
 InpRequireNewBar=false
 InpTimerSeconds=1
 InpDryRun=true
-;--- ui ---
+InpNewsEnabled=true
+InpNewsImportance=3
+InpNewsIncludeModerate=false
+InpNewsBeforeMin=20
+InpNewsAfterMin=15
+InpNewsCurrencies=USD
+InpNewsAction=0
+InpNewsPauseAutomation=true
+InpNewsTightenBeforeClose=false
+InpNewsManualWindows=
+InpNewsRefreshSec=30
+InpRiskPctPerBasket=0.0
+InpRiskRewardRatio=0.0
+InpRiskCapPips=0.0
+InpRiskFloorPips=80.0
+InpEmergencyFloatLossPct=0
+InpEmergencyEquityDdPct=0.0
+InpEmergencyMarginLevelPct=0
+InpEmergencyFreeMarginPct=0
+InpEmergencyStepDown=false
+InpEmergencyLockHours=24
+InpDailyLossLimitPct=0.0
+InpDailyProfitTargetPct=0.0
+InpDailyCloseOnLimit=true
+InpMoneyBasis=0
+InpCentDivisor=100.0
+InpAdaptiveStops=true
+InpAdaptiveStopsCapPoints=300
 InpShowPanel=true
 InpAlertOnRiskFree=true
 InpVerboseLog=true

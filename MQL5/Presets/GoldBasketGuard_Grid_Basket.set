@@ -1,13 +1,13 @@
-; GoldBasketGuard preset - grid / averaging basket on gold (XAUUSD 2 digits)
-; The whole basket shares ONE TP and ONE SL, the group is switched to risk-free
-; after 150 pips, part of the volume is taken off, and a kill-switch protects equity.
-;--- group ---
+; GoldBasketGuard preset - XAUUSD, 2 decimals - grid / averaging basket
+; grid / averaging basket: levels glued to the basket average, risk-sized SL (3%),
+; risk-free on the average after 150p with 30% volume cut, money target/stop, news closes everything, 35% breaker, 8% daily limit.
+; Load: EA properties dialog -> button [Presets] -> Load -> choose this file.
+; Every value is documented in docs/GoldBasketGuard-parameters.md
 InpMagicFilter=0
 InpOnlyThisChartSymbol=true
 InpIncludeBuy=true
 InpIncludeSell=true
 InpOnlyAfterAttach=false
-;--- group TP / SL ---
 InpApplyMode=1
 InpSLPips=450.0
 InpTPPips=250.0
@@ -17,12 +17,10 @@ InpAutoApplyOnStart=true
 InpReapplyEveryCycle=true
 InpAbsSLPrice=0.0
 InpAbsTPPrice=0.0
-;--- mirror one edit to all ---
 InpMirrorSL=true
 InpMirrorTP=true
 InpMirrorMode=1
 InpMirrorGuardSec=4
-;--- risk free ---
 InpBeMode=2
 InpBeTriggerPips=150.0
 InpBeLockPips=8.0
@@ -32,35 +30,56 @@ InpBeOneShot=false
 InpBeClosePartial=true
 InpBeClosePartialPct=30.0
 InpBeUseHardTpInstead=false
-;--- trailing ---
 InpTrailMode=3
 InpTrailStartPips=200.0
-InpTrailMinPips=35.0
-InpTrailMaxPips=160.0
-InpTrailCoefPct=30.0
+InpTrailStepPips=30.0
+InpTrailMinPips=40.0
 InpTrailFollowGroup=true
 InpTrailMoveTpToo=false
-;--- money ---
 InpEnableBasketMoneyExit=true
-InpBasketTakeMoney=250.0
-InpBasketStopMoney=600.0
 InpEstCommissionPerLot=7.0
 InpEnableKillSwitch=true
 InpMaxDrawdownPctEquity=15.0
 InpCloseAllOnKill=true
-;--- broker safety (gold) ---
 InpPipSize=0.1
 InpMinStopsPoints=10
-InpMinDeltaPoints=3
-InpDeviationPoints=50
-InpMaxModsPerSecond=3
-InpMinSecPerTicket=3
-InpRetryCount=4
-InpRetryDelayMs=400
+InpMinDeltaPoints=2
+InpDeviationPoints=30
+InpMaxModsPerSecond=4
+InpMinSecPerTicket=2
+InpRetryCount=3
+InpRetryDelayMs=350
 InpRequireNewBar=false
 InpTimerSeconds=1
 InpDryRun=false
-;--- ui ---
+InpNewsEnabled=true
+InpNewsImportance=3
+InpNewsIncludeModerate=false
+InpNewsBeforeMin=30
+InpNewsAfterMin=15
+InpNewsCurrencies=USD
+InpNewsAction=4
+InpNewsPauseAutomation=true
+InpNewsTightenBeforeClose=true
+InpNewsManualWindows=
+InpNewsRefreshSec=30
+InpRiskPctPerBasket=3.0
+InpRiskRewardRatio=0.0
+InpRiskCapPips=600.0
+InpRiskFloorPips=80.0
+InpEmergencyFloatLossPct=35
+InpEmergencyEquityDdPct=0.0
+InpEmergencyMarginLevelPct=150
+InpEmergencyFreeMarginPct=0
+InpEmergencyStepDown=false
+InpEmergencyLockHours=24
+InpDailyLossLimitPct=8.0
+InpDailyProfitTargetPct=0.0
+InpDailyCloseOnLimit=true
+InpMoneyBasis=0
+InpCentDivisor=100.0
+InpAdaptiveStops=true
+InpAdaptiveStopsCapPoints=300
 InpShowPanel=true
 InpAlertOnRiskFree=true
 InpVerboseLog=true

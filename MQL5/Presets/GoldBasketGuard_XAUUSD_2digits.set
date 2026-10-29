@@ -1,13 +1,13 @@
-; GoldBasketGuard preset - XAUUSD with 2 decimal places (most common gold quote)
-; Load in MT5: Experts list -> right click -> Properties -> Common tab is not enough:
-; use the "Presets" button in the EA dialog -> Load. Values are also listed in docs/.
-;--- group ---
+; GoldBasketGuard preset - XAUUSD, 2 decimal places (most common gold quote)
+; standard gold setup: group SL 300p / TP 500p, risk-free after 200p,
+; step trailing, red-folder news guard (close group), breaker at 50% of balance.
+; Load: EA properties dialog -> button [Presets] -> Load -> choose this file.
+; Every value is documented in docs/GoldBasketGuard-parameters.md
 InpMagicFilter=0
 InpOnlyThisChartSymbol=true
 InpIncludeBuy=true
 InpIncludeSell=true
 InpOnlyAfterAttach=false
-;--- group TP / SL ---
 InpApplyMode=1
 InpSLPips=300.0
 InpTPPips=500.0
@@ -17,12 +17,10 @@ InpAutoApplyOnStart=true
 InpReapplyEveryCycle=false
 InpAbsSLPrice=0.0
 InpAbsTPPrice=0.0
-;--- mirror one edit to all ---
 InpMirrorSL=true
 InpMirrorTP=true
 InpMirrorMode=1
 InpMirrorGuardSec=4
-;--- risk free ---
 InpBeMode=2
 InpBeTriggerPips=200.0
 InpBeLockPips=10.0
@@ -32,20 +30,17 @@ InpBeOneShot=true
 InpBeClosePartial=false
 InpBeClosePartialPct=30.0
 InpBeUseHardTpInstead=false
-;--- trailing ---
 InpTrailMode=1
 InpTrailStartPips=250.0
 InpTrailStepPips=30.0
 InpTrailMinPips=40.0
 InpTrailFollowGroup=true
 InpTrailMoveTpToo=false
-;--- money ---
 InpEnableBasketMoneyExit=false
 InpEstCommissionPerLot=0.0
 InpEnableKillSwitch=true
 InpMaxDrawdownPctEquity=12.0
 InpCloseAllOnKill=true
-;--- broker safety (gold) ---
 InpPipSize=0.1
 InpMinStopsPoints=0
 InpMinDeltaPoints=2
@@ -57,7 +52,34 @@ InpRetryDelayMs=350
 InpRequireNewBar=false
 InpTimerSeconds=1
 InpDryRun=false
-;--- ui ---
+InpNewsEnabled=true
+InpNewsImportance=3
+InpNewsIncludeModerate=false
+InpNewsBeforeMin=20
+InpNewsAfterMin=15
+InpNewsCurrencies=USD
+InpNewsAction=3
+InpNewsPauseAutomation=true
+InpNewsTightenBeforeClose=true
+InpNewsManualWindows=
+InpNewsRefreshSec=30
+InpRiskPctPerBasket=0.0
+InpRiskRewardRatio=0.0
+InpRiskCapPips=0.0
+InpRiskFloorPips=80.0
+InpEmergencyFloatLossPct=50
+InpEmergencyEquityDdPct=0.0
+InpEmergencyMarginLevelPct=150
+InpEmergencyFreeMarginPct=0
+InpEmergencyStepDown=false
+InpEmergencyLockHours=24
+InpDailyLossLimitPct=0.0
+InpDailyProfitTargetPct=0.0
+InpDailyCloseOnLimit=true
+InpMoneyBasis=0
+InpCentDivisor=100.0
+InpAdaptiveStops=true
+InpAdaptiveStopsCapPoints=300
 InpShowPanel=true
 InpAlertOnRiskFree=true
 InpVerboseLog=true
