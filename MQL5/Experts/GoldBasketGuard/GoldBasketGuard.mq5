@@ -5,13 +5,15 @@
 //+------------------------------------------------------------------+
 #property copyright   "my-new-trading-system"
 #property link        "https://github.com/umberlla19733/my-new-trading-system"
-#property version   "1.14"
+#property version   "1.15"
 #property description "Group (basket) stop-loss / take-profit manager with automatic risk-free for MT5"
 #property description "Gold / XAUUSD: set TP-SL on ONE ticket, the whole group is aligned to it"
 #property description "News guard (red-folder), risk-percent sizing, cent/dollar auto-detect; closes all at 60% account risk"
 #property description "Zero-config: pip size, stops/freeze levels, hedging/netting and account currency are detected"
 #property description "at start, so no preset file is needed. Sub-second reaction: 100 ms loop + trade-event driven mirroring."
 #property description "v1.14: 12 on/off switches on the chart panel (keys 1-9, 0, -, =), remembered per account+symbol."
+#property description "v1.15: lighter on the terminal - one account snapshot per cycle, the panel paints only"
+#property description "what changed, and a chart with no positions ticks at 1 Hz instead of 10 Hz."
 #property description "Not investment advice."
 
 #include <Trade\Trade.mqh>
@@ -159,6 +161,7 @@ input int      InpRetryCount             = 3;         // Retries on requote/busy
 input int      InpRetryDelayMs           = 120;       // Delay between retries (ms, ignored in tester)
 input bool     InpRequireNewBar          = false;     // Evaluate only once per new bar
 input int      InpTimerMs                = 100;       // Fast loop period in ms (0 = OnTick only)
+input int      InpIdleRefreshMs          = 1000;      // Loop period in ms while the account holds no positions
 input int      InpPanelRefreshMs         = 150;       // Panel repaint period (ms)
 input bool     InpInstantMirror          = true;       // React to trade events at once, do not wait for the loop
 input bool     InpDryRun                 = false;     // Dry run: log decisions, send nothing
@@ -271,6 +274,31 @@ datetime g_arm_all      = 0;         // second-click timers, one per button
 datetime g_arm_lose     = 0;
 datetime g_arm_win      = 0;
 datetime g_arm_part     = 0;
+long     g_cycle        = -1;        // cycle counter, part of the cache key
+double   g_a_bal        = 0.0;       // this cycle's account numbers
+double   g_a_eq         = 0.0;
+double   g_a_ml         = 0.0;
+double   g_a_fm         = 0.0;
+double   g_a_bid        = 0.0;       // chart symbol quotes
+double   g_a_ask        = 0.0;
+int      g_a_spread     = 0;
+int      g_a_stops      = 0;
+int      g_a_freeze     = 0;
+double   g_a_mpp_lot    = -1.0;      // money per pip per lot, cached for one symbol
+string   g_a_mpp_sym    = "";
+bool     g_a_fresh      = false;     // false = something moved, re-read on next use
+datetime g_a_now        = 0;         // TimeCurrent() of this snapshot
+datetime g_a_snow       = 0;         // TimeTradeServer() of this snapshot
+bool     g_a_allowed    = true;      // algo trading on, checked once a second
+long     g_a_allowed_ms = -10000;
+bool     g_is_tester    = false;     // InTester() is an accessor too: read it once
+string   g_row_txt[14];              // last text written to each panel row
+color    g_row_clr[14];
+bool     g_row_known[14];
+bool     g_panel_force  = true;      // paint the panel on the next update, no matter what
+long     g_panel_sig    = 0;         // fingerprint of the panel content
+bool     g_obj_dirty    = false;     // did anything actually get written?
+int      g_timer_ms     = 0;         // what the millisecond timer is set to now
 int      g_last_ms      = 0;         // duration of the last management cycle (ms)
 int      g_slow_ms      = 0;         // slowest cycle since the terminal was started
 bool     g_in_trade     = false;     // re-entrancy guard for OnTradeTransaction
@@ -447,7 +475,7 @@ void SwInitDefaults()
 //+------------------------------------------------------------------+
 void UiSave()
   {
-   if(!InpPersistPanel || IsTester())
+   if(!InpPersistPanel || InTester())
       return;
    GVSet("SW",      (double)(long)g_sw);
    GVSet("TRAILUI", g_trailOn ? 1.0 : 0.0);
@@ -465,7 +493,7 @@ void UiSave()
 //+------------------------------------------------------------------+
 void UiLoad()
   {
-   if(!InpPersistPanel || IsTester())
+   if(!InpPersistPanel || InTester())
       return;
    double v = GVGet("SW", -1.0);
    if(v >= 0.0)
@@ -489,7 +517,7 @@ void UiLoad()
 void UiReset()
   {
    string keys[12] = {"SW","TRAILUI","NEWSUI","PAUSEUI","SLP","TPP","BEA","BEL","TRD","ABSL","ABSTP","MINI"};
-   if(!IsTester() && InpPersistPanel)
+   if(!InTester() && InpPersistPanel)
       for(int i = 0; i < 12; i++)
          GlobalVariableDel(g_gv_prefix + keys[i]);
    g_paused = false;
@@ -524,6 +552,7 @@ void Notify(const string txt)
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   g_is_tester = IsTester();
    g_point  = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    g_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    if(g_point <= 0.0)
@@ -560,10 +589,13 @@ int OnInit()
    if(!g_hedging)
       g_warn = "NETTING account: the group is a single ticket - mirroring is limited.";
 
-   if(InpTimerMs > 0 && !IsTester())
-      EventSetMillisecondTimer(MathMax(20, InpTimerMs));   // 100 ms loop: reaction, not 1 s
+   if(InpTimerMs > 0 && !InTester())
+     {
+      g_timer_ms = MathMax(20, InpTimerMs);
+      EventSetMillisecondTimer(g_timer_ms);                 // 100 ms loop: reaction, not 1 s
+     }
 
-   if(InpShowPanel && (!IsTester() || IsVisual()))
+   if(InpShowPanel && (!InTester() || IsVisual()))
       PanelCreate();
 
    Log(StringFormat("GoldBasketGuard on %s | pip=%.5f (%.0f pt) | digits=%d | hedging=%s | account=%s%s | risk=%.2f/pip",
@@ -623,6 +655,8 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result)
   {
+   SnapReset();                          // quotes, balance and the position list are stale now
+   g_panel_force = true;                 // the trader wants to see this one immediately
    if(g_paused || g_killed)
       return;
    if(trans.type == TRADE_TRANSACTION_POSITION)
@@ -704,7 +738,7 @@ int SwByKey(const int key)
 //+------------------------------------------------------------------+
 void OnHotkey(const int key)
   {
-   g_panel_ms = 0;                      // react visually at once
+   PanelForce();                        // react visually at once
    if(g_page == 1)
      {
       int i = SwByKey(key);
@@ -783,7 +817,7 @@ void SwClicked(const int i)
 //+------------------------------------------------------------------+
 void OnButton(string name)
   {
-   g_panel_ms = 0;                      // a click repaints the panel at once
+   PanelForce();                        // a click repaints the panel at once
    if(StringFind(name, "TG") == 0)
      {
       SwClicked((int)StringToInteger(StringSubstr(name, 2)));
@@ -853,13 +887,142 @@ void RunCycle()
   {
    long t0 = NowMs();
    Manage();
+   TuneTimer();
    g_last_ms = (int)(NowMs() - t0);
    if(g_last_ms > g_slow_ms)
       g_slow_ms = g_last_ms;
   }
 //+------------------------------------------------------------------+
+//| One snapshot per cycle. The terminal accessors are the expensive   |
+//| part of a 100 ms loop, so every guard reads from here. After an    |
+//| order the snapshot is dropped: nothing stale ever decides a close. |
+//+------------------------------------------------------------------+
+void SnapRead()
+  {
+   g_a_bal    = AccountInfoDouble(ACCOUNT_BALANCE);
+   g_a_eq     = AccountInfoDouble(ACCOUNT_EQUITY);
+   g_a_ml     = AccountInfoDouble(ACCOUNT_MARGIN_LEVEL);
+   g_a_fm     = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   g_a_bid    = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   g_a_ask    = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   g_a_spread = (int)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   g_a_stops  = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   g_a_freeze = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   g_a_now    = TimeCurrent();
+   g_a_snow   = TimeTradeServer();
+   if(g_a_snow <= 0)
+      g_a_snow = g_a_now;
+   g_a_mpp_sym = "";                       // tick values are re-read once per snapshot
+   g_a_mpp_lot = -1.0;
+   g_a_fresh  = true;
+  }
+//+------------------------------------------------------------------+
+void SnapReset()
+  {
+   g_a_fresh = false;
+  }
+//+------------------------------------------------------------------+
+double AcctBal()
+  {
+   if(!g_a_fresh)
+      SnapRead();
+   return g_a_bal;
+  }
+//+------------------------------------------------------------------+
+double AcctEq()
+  {
+   if(!g_a_fresh)
+      SnapRead();
+   return g_a_eq;
+  }
+//+------------------------------------------------------------------+
+double AcctMarginLevel()
+  {
+   if(!g_a_fresh)
+      SnapRead();
+   return g_a_ml;
+  }
+//+------------------------------------------------------------------+
+double AcctFreeMargin()
+  {
+   if(!g_a_fresh)
+      SnapRead();
+   return g_a_fm;
+  }
+//+------------------------------------------------------------------+
+//| Static per-cycle symbol properties: they only change on a rebuild  |
+//| of the symbol settings, never between two lines of one cycle       |
+//+------------------------------------------------------------------+
+double PointOf(string sym)
+  {
+   return (sym == _Symbol) ? g_point : SymbolInfoDouble(sym, SYMBOL_POINT);
+  }
+//+------------------------------------------------------------------+
+int DigitsOf(string sym)
+  {
+   return (sym == _Symbol) ? g_digits : (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+  }
+//+------------------------------------------------------------------+
+int StopsOf(string sym)
+  {
+   if(sym == _Symbol)
+     {
+      if(!g_a_fresh)
+         SnapRead();
+      return g_a_stops;
+     }
+   return (int)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL);
+  }
+//+------------------------------------------------------------------+
+int FreezeOf(string sym)
+  {
+   if(sym == _Symbol)
+     {
+      if(!g_a_fresh)
+         SnapRead();
+      return g_a_freeze;
+     }
+   return (int)SymbolInfoInteger(sym, SYMBOL_TRADE_FREEZE_LEVEL);
+  }
+//+------------------------------------------------------------------+
+//| Quotes: the chart symbol comes from the snapshot, any other symbol |
+//| is read live, so a multi-symbol group is never served stale data   |
+//+------------------------------------------------------------------+
+double BidPx(string sym)
+  {
+   if(g_a_fresh && sym == _Symbol)
+      return g_a_bid;
+   return SymbolInfoDouble(sym, SYMBOL_BID);
+  }
+//+------------------------------------------------------------------+
+double AskPx(string sym)
+  {
+   if(g_a_fresh && sym == _Symbol)
+      return g_a_ask;
+   return SymbolInfoDouble(sym, SYMBOL_ASK);
+  }
+//+------------------------------------------------------------------+
+//| The loop itself: slow down while there is nothing on the account,  |
+//| because a new position always wakes it up through the trade event  |
+//+------------------------------------------------------------------+
+void TuneTimer()
+  {
+   if(InTester() || InpTimerMs <= 0)
+      return;
+   bool quiet = (PositionsTotal() == 0 && ArraySize(g_pos) == 0 && !g_paused);
+   int  want  = quiet ? (int)MathMax((double)InpTimerMs, (double)InpIdleRefreshMs)
+                      : (int)MathMax(20, InpTimerMs);
+   if(want != g_timer_ms)
+     {
+      g_timer_ms = want;
+      EventSetMillisecondTimer(want);
+     }
+  }
+//+------------------------------------------------------------------+
 void Manage()
   {
+   g_cycle++;
+   SnapRead();
    TouchRateWindow();
    g_warn        = "";
    g_info_line   = "";
@@ -871,7 +1034,7 @@ void Manage()
    if(InpRequireNewBar)
      {
       datetime bt = iTime(_Symbol, PERIOD_CURRENT, 0);
-      if(bt == g_last_bar && !IsTester())
+      if(bt == g_last_bar && !InTester())
         {
          PanelUpdate();
          return;
@@ -887,7 +1050,7 @@ void Manage()
       return;
      }
 
-   if(!IsTester() && (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) == 0 || MQLInfoInteger(MQL_TRADE_ALLOWED) == 0))
+   if(!TradeAllowedNow())
      {
       g_warn = "ALGO TRADING is disabled in the terminal - levels are only calculated, not sent";
       PanelUpdate();
@@ -981,25 +1144,43 @@ bool MatchPosition(ulong ticket, string sym, long magic, string cmt, int type, d
 //+------------------------------------------------------------------+
 int CollectGroup()
   {
-   ArrayResize(g_pos, 0);
    int total = PositionsTotal();
+   int k     = 0;
+   if(ArraySize(g_pos) < total)
+      ArrayResize(g_pos, MathMax(1, total));       // reserve once: no resize per ticket
    for(int i = 0; i < total; i++)
      {
       ulong t = PositionGetTicket(i);
       if(t == 0)
          continue;
-      string sym   = PositionGetString(POSITION_SYMBOL);
-      long   magic = PositionGetInteger(POSITION_MAGIC);
-      int    type  = (int)PositionGetInteger(POSITION_TYPE);
-      string cmt   = PositionGetString(POSITION_COMMENT);
-      datetime ot  = (datetime)PositionGetInteger(POSITION_TIME);
+      //--- cheap discriminators first: most tickets on the account are not ours,
+      //    and every PositionGet* we skip is a terminal call we do not pay for
+      int type = (int)PositionGetInteger(POSITION_TYPE);
       if(type != POSITION_TYPE_BUY && type != POSITION_TYPE_SELL)
          continue;
+      if(type == POSITION_TYPE_BUY ? !InpIncludeBuy : !InpIncludeSell)
+         continue;
+      long magic = 0;
+      if(InpMagicFilter != 0)
+        {
+         magic = PositionGetInteger(POSITION_MAGIC);
+         if(magic != InpMagicFilter)
+            continue;
+        }
+      datetime ot = 0;
+      if(InpOnlyAfterAttach)
+        {
+         ot = (datetime)PositionGetInteger(POSITION_TIME);
+         if(ot < g_start_time)
+            continue;
+        }
+      string sym = PositionGetString(POSITION_SYMBOL);
+      if(!SymbolAllowed(sym))
+         continue;
+      string cmt = PositionGetString(POSITION_COMMENT);
       if(!MatchPosition(t, sym, magic, cmt, type, ot))
          continue;
 
-      int k = ArraySize(g_pos);
-      ArrayResize(g_pos, k + 1);
       g_pos[k].ticket   = t;
       g_pos[k].symbol   = sym;
       g_pos[k].magic    = magic;
@@ -1013,12 +1194,13 @@ int CollectGroup()
       g_pos[k].time     = ot;
       g_pos[k].comment  = cmt;
       g_pos[k].gain_money = g_pos[k].profit + g_pos[k].swap;
-      double cur = (type == POSITION_TYPE_BUY) ? SymbolInfoDouble(sym, SYMBOL_BID)
-                                               : SymbolInfoDouble(sym, SYMBOL_ASK);
+      double cur = (type == POSITION_TYPE_BUY) ? BidPx(sym) : AskPx(sym);
       g_pos[k].gain_pips = (type == POSITION_TYPE_BUY) ? (cur - g_pos[k].open) / g_pip
                                                         : (g_pos[k].open - cur) / g_pip;
+      k++;
      }
-   return ArraySize(g_pos);
+   ArrayResize(g_pos, k);
+   return k;
   }
 //+------------------------------------------------------------------+
 void ComputeBasket()
@@ -1337,11 +1519,11 @@ bool FinalizeLevel(string sym, int type, bool is_sl, double raw, double &out, bo
    if(raw <= 0.0)
       return false;
 
-   double pt   = SymbolInfoDouble(sym, SYMBOL_POINT);
-   double ask  = SymbolInfoDouble(sym, SYMBOL_ASK);
-   double bid  = SymbolInfoDouble(sym, SYMBOL_BID);
-   int    dg   = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-   double stops = (double)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL) * pt;
+   double pt    = PointOf(sym);
+   double ask   = AskPx(sym);
+   double bid   = BidPx(sym);
+   int    dg    = DigitsOf(sym);
+   double stops = (double)StopsOf(sym) * pt;
    double min_gap = MathMax(stops, (double)InpMinStopsPoints * pt) + pt * 0.5;
    if(min_gap <= 0.0)
       min_gap = pt * 10.0;
@@ -1405,7 +1587,7 @@ void ApplyRiskFree(const bool force)
    if(n == 0)
       return;
 
-   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   double eq = AcctEq();
    bool   group_trig = true;
    if(!force)
      {
@@ -1519,8 +1701,7 @@ void ApplyTrailing()
          continue;                     // never trail a ticket that is under water
 
       bool   buy = (g_pos[i].type == POSITION_TYPE_BUY);
-      double mkt = buy ? SymbolInfoDouble(g_pos[i].symbol, SYMBOL_BID)
-                       : SymbolInfoDouble(g_pos[i].symbol, SYMBOL_ASK);
+      double mkt = buy ? BidPx(g_pos[i].symbol) : AskPx(g_pos[i].symbol);
       double own = g_pos[i].gain_pips;
       double raw_sl, d;
 
@@ -1592,7 +1773,7 @@ void CheckKillSwitch()
   {
    if(!UseKill() || g_killed)
       return;
-   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   double eq = AcctEq();
    if(eq <= 0.0)
       return;
    double loss = -GroupNetMoney();
@@ -1648,6 +1829,7 @@ void ClosePartialGroup(double pct, string reason)
          g_last_action = StringFormat("%s: closed %.2f lot of #%s", reason, v, Tk(g_pos[i].ticket));
          target -= v;
          g_dirty = true;
+         SnapReset();
         }
       else
          PrintFormat("GoldBasketGuard: partial close failed #%s (%d)", Tk(g_pos[i].ticket), (int)g_trade.ResultRetcode());
@@ -1690,7 +1872,7 @@ void CloseGroup(int mode, string reason)
       for(int r = 0; r <= InpRetryCount && !done; r++)
         {
          done = g_trade.PositionClose(g_pos[i].ticket, (ulong)InpDeviationPoints);
-         if(!done && r < InpRetryCount && !IsTester())
+         if(!done && r < InpRetryCount && !InTester())
             Sleep(InpRetryDelayMs);
         }
       if(done) closed++;
@@ -1704,6 +1886,7 @@ void CloseGroup(int mode, string reason)
    Log(g_last_action);
    Notify(g_last_action);
    g_dirty = false;
+   SnapReset();                          // the account numbers just moved
    CollectGroup();
    ComputeBasket();
    PanelUpdate();
@@ -1719,9 +1902,9 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
       return false;
 
    string sym = g_pos[i].symbol;
-   double pt  = SymbolInfoDouble(sym, SYMBOL_POINT);
+   double pt  = PointOf(sym);
    double dlt = pt * MathMax(1, InpMinDeltaPoints) * 0.5;
-   int    dg  = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   int    dg  = DigitsOf(sym);
 
    // widen the guard if this broker is stricter than its own STOPS_LEVEL suggests
    double sl = sl_req;
@@ -1729,8 +1912,8 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
    if(g_stop_pad > 0 && (sl > 0.0 || tp > 0.0))
      {
       double pad = (double)g_stop_pad * pt;
-      double bid = SymbolInfoDouble(sym, SYMBOL_BID);
-      double ask = SymbolInfoDouble(sym, SYMBOL_ASK);
+      double bid = BidPx(sym);
+      double ask = AskPx(sym);
       bool   buy = (g_pos[i].type == POSITION_TYPE_BUY);
       if(sl > 0.0)
          sl = buy ? MathMin(sl, bid - pad) : MathMax(sl, ask + pad);
@@ -1759,11 +1942,11 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
       NowMs() - (long)g_st[kk].seen_ms < InpMinMsPerTicket)
       return false;                    // anti-spam cool-down for this ticket
 
-   double frz = (double)SymbolInfoInteger(sym, SYMBOL_TRADE_FREEZE_LEVEL) * pt;
+   double frz = (double)FreezeOf(sym) * pt;
    if(frz > 0.0)
      {
-      double bid = SymbolInfoDouble(sym, SYMBOL_BID);
-      double ask = SymbolInfoDouble(sym, SYMBOL_ASK);
+      double bid = BidPx(sym);
+      double ask = AskPx(sym);
       bool   buy = (g_pos[i].type == POSITION_TYPE_BUY);
       if(g_pos[i].sl > 0.0 && MathAbs((buy ? bid - g_pos[i].sl : g_pos[i].sl - ask)) < frz)
         {
@@ -1822,6 +2005,7 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
            }
          g_pos[i].sl = srv_sl;
          g_pos[i].tp = srv_tp;
+         SnapReset();                    // the server answered: equity and levels moved
          StRemember(i);
          if(MathAbs(srv_sl - sl) <= g_point * 0.5 && MathAbs(srv_tp - tp) <= g_point * 0.5)
             StMarkSent(i, sl, tp);      // wait for the echo of exactly this level
@@ -1837,7 +2021,7 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
                         rc == TRADE_RETCODE_TIMEOUT || !sent);
       if(r < InpRetryCount && retryable)
         {
-         if(!IsTester())
+         if(!InTester())
             Sleep(InpRetryDelayMs);
          continue;
         }
@@ -2007,9 +2191,12 @@ void Log(string msg)
    Print("GoldBasketGuard: " + msg);
   }
 //+------------------------------------------------------------------+
-bool IsTester()
+//| The tester flag never changes while the EA lives: read it        |
+//| once in OnInit, not once per guard                               |
+//+------------------------------------------------------------------+
+bool InTester()
   {
-   return (MQLInfoInteger(MQL_TESTER) != 0);
+   return g_is_tester;
   }
 bool IsVisual()
   {
@@ -2022,40 +2209,48 @@ string MoneyStr(double v)
   }
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
-//| Chart panel                                                       |
-//+------------------------------------------------------------------+
-void ORect(string name,int dx,int dy,int w,int h)
+//| Chart panel                                                       |//---------------------------------------------------------------------
+//| One frame for every object on the card: top-left corner, sized, never|
+//| clickable, absent from the object list. The four writers below used to|
+//| repeat these nine lines each.                                    |
+//---------------------------------------------------------------------
+void ObjFrame(string n,const int dx,const int dy,const int w,const int h,const int z)
   {
-   string n = GBG + name;
-   if(ObjectFind(0,n) < 0)
-      ObjectCreate(0,n,OBJ_RECTANGLE_LABEL,0,0,0);
    ObjectSetInteger(0,n,OBJPROP_CORNER,CORNER_LEFT_UPPER);
    ObjectSetInteger(0,n,OBJPROP_XDISTANCE,dx);
    ObjectSetInteger(0,n,OBJPROP_YDISTANCE,dy);
    ObjectSetInteger(0,n,OBJPROP_XSIZE,w);
    ObjectSetInteger(0,n,OBJPROP_YSIZE,h);
+   ObjectSetInteger(0,n,OBJPROP_SELECTABLE,false);
+   ObjectSetInteger(0,n,OBJPROP_SELECTED,false);
+   ObjectSetInteger(0,n,OBJPROP_HIDDEN,true);
+   ObjectSetInteger(0,n,OBJPROP_ZORDER,z);
+  }
+//---------------------------------------------------------------------
+void ORect(string name,int dx,int dy,int w,int h)
+  {
+   string n = GBG + name;
+   if(ObjectFind(0,n) < 0)
+      ObjectCreate(0,n,OBJ_RECTANGLE_LABEL,0,0,0);
+   ObjFrame(n,dx,dy,w,h,0);
    ObjectSetInteger(0,n,OBJPROP_BGCOLOR,InpClrPanelBg);
    ObjectSetInteger(0,n,OBJPROP_BORDER_TYPE,BORDER_FLAT);
    ObjectSetInteger(0,n,OBJPROP_COLOR,InpClrAccent);
    ObjectSetInteger(0,n,OBJPROP_WIDTH,1);
    ObjectSetInteger(0,n,OBJPROP_BACK,false);
-   ObjectSetInteger(0,n,OBJPROP_SELECTABLE,false);
-   ObjectSetInteger(0,n,OBJPROP_HIDDEN,true);
-   ObjectSetInteger(0,n,OBJPROP_ZORDER,0);
   }
-//+------------------------------------------------------------------+
+//---------------------------------------------------------------------
+//| A label. Its place never moves while the EA lives - changing the panel|
+//| inputs re-inits it, which recreates the objects - so the skip check only|
+//| has to look at text and colour.                                  |
+//---------------------------------------------------------------------
 void OLabel(string name,int dx,int dy,string txt,color clr,int fs)
   {
    string n = GBG + name;
    if(ObjectFind(0,n) < 0)
       ObjectCreate(0,n,OBJ_LABEL,0,0,0);
-   else
-     {
-      bool same = (ObjectGetString(0,n,OBJPROP_TEXT) == txt && (color)ObjectGetInteger(0,n,OBJPROP_COLOR) == clr);
-      same = same && (ObjectGetInteger(0,n,OBJPROP_XDISTANCE) == dx && ObjectGetInteger(0,n,OBJPROP_YDISTANCE) == dy);
-      if(same && ObjectGetInteger(0,n,OBJPROP_FONTSIZE) == fs)
-         return;                       // identical text and place: no writes, no flicker
-     }
+   else if(ObjectGetString(0,n,OBJPROP_TEXT) == txt && (color)ObjectGetInteger(0,n,OBJPROP_COLOR) == clr)
+      return;                       // identical: no writes, no flicker
    ObjectSetInteger(0,n,OBJPROP_CORNER,CORNER_LEFT_UPPER);
    ObjectSetInteger(0,n,OBJPROP_XDISTANCE,dx);
    ObjectSetInteger(0,n,OBJPROP_YDISTANCE,dy);
@@ -2069,51 +2264,37 @@ void OLabel(string name,int dx,int dy,string txt,color clr,int fs)
    ObjectSetInteger(0,n,OBJPROP_ZORDER,1);
    ObjectSetString(0,n,OBJPROP_FONT,"Arial");
    ObjectSetString(0,n,OBJPROP_TEXT,txt);
+   g_obj_dirty = true;
   }
-//+------------------------------------------------------------------+
+//---------------------------------------------------------------------
 void OButton(string name,int dx,int dy,int w,int h,string txt,string tip)
   {
    string n = GBG + "BTN_" + name;
    if(ObjectFind(0,n) < 0)
       ObjectCreate(0,n,OBJ_BUTTON,0,0,0);
-   ObjectSetInteger(0,n,OBJPROP_CORNER,CORNER_LEFT_UPPER);
-   ObjectSetInteger(0,n,OBJPROP_XDISTANCE,dx);
-   ObjectSetInteger(0,n,OBJPROP_YDISTANCE,dy);
-   ObjectSetInteger(0,n,OBJPROP_XSIZE,w);
-   ObjectSetInteger(0,n,OBJPROP_YSIZE,h);
+   ObjFrame(n,dx,dy,w,h,2);
    ObjectSetInteger(0,n,OBJPROP_FONTSIZE,InpFontSize);
    ObjectSetInteger(0,n,OBJPROP_COLOR,InpClrText);
    ObjectSetInteger(0,n,OBJPROP_BGCOLOR,C'40,48,62');
    ObjectSetInteger(0,n,OBJPROP_BORDER_COLOR,C'70,80,100');
    ObjectSetInteger(0,n,OBJPROP_STATE,false);
-   ObjectSetInteger(0,n,OBJPROP_SELECTABLE,false);
-   ObjectSetInteger(0,n,OBJPROP_SELECTED,false);
-   ObjectSetInteger(0,n,OBJPROP_HIDDEN,true);
-   ObjectSetInteger(0,n,OBJPROP_ZORDER,2);
    ObjectSetString(0,n,OBJPROP_FONT,"Arial");
    ObjectSetString(0,n,OBJPROP_TEXT,txt);
    ObjectSetString(0,n,OBJPROP_TOOLTIP,tip);
   }
-//+------------------------------------------------------------------+
+//---------------------------------------------------------------------
 void OEdit(string name,int dx,int dy,int w,int h,string txt,string tip)
   {
    string n = GBG + "EDIT_" + name;
    if(ObjectFind(0,n) < 0)
       ObjectCreate(0,n,OBJ_EDIT,0,0,0);
-   ObjectSetInteger(0,n,OBJPROP_CORNER,CORNER_LEFT_UPPER);
-   ObjectSetInteger(0,n,OBJPROP_XDISTANCE,dx);
-   ObjectSetInteger(0,n,OBJPROP_YDISTANCE,dy);
-   ObjectSetInteger(0,n,OBJPROP_XSIZE,w);
-   ObjectSetInteger(0,n,OBJPROP_YSIZE,h);
+   ObjFrame(n,dx,dy,w,h,2);
    ObjectSetInteger(0,n,OBJPROP_FONTSIZE,InpFontSize);
    ObjectSetInteger(0,n,OBJPROP_COLOR,InpClrAccent);
    ObjectSetInteger(0,n,OBJPROP_BGCOLOR,C'12,16,22');
    ObjectSetInteger(0,n,OBJPROP_BORDER_COLOR,C'90,100,120');
    ObjectSetInteger(0,n,OBJPROP_ALIGN,ALIGN_CENTER);
    ObjectSetInteger(0,n,OBJPROP_READONLY,false);
-   ObjectSetInteger(0,n,OBJPROP_SELECTABLE,false);
-   ObjectSetInteger(0,n,OBJPROP_HIDDEN,true);
-   ObjectSetInteger(0,n,OBJPROP_ZORDER,2);
    ObjectSetString(0,n,OBJPROP_FONT,"Consolas");
    ObjectSetString(0,n,OBJPROP_TEXT,txt);
    ObjectSetString(0,n,OBJPROP_TOOLTIP,tip);
@@ -2288,6 +2469,7 @@ void PanelCreate()
 
    for(int i = 0; i < rows; i++)
       OLabel("L" + IntegerToString(i),x+10,y+42+i*rowh,"",InpClrText,InpFontSize);
+   PanelForgetRows();
 
    int ey = y + 42 + rows*rowh + 6;
    OLabel("K1",x+10,ey+3,"SL  pips",InpClrText,InpFontSize);
@@ -2333,6 +2515,8 @@ void PanelCreate()
    OButton("MIN",      x+8+2*(bw+gap),by, bw, bh, "MINIMISE",     "Shrink the panel to three lines");
    ObjectSetString(0,GBG + "BG",OBJPROP_TOOLTIP,
                    "keys: 1 apply  2 SL  3 TP  4 risk-free  5 trail  6 news  7 unlock  0 pause  8 switches  9 minimise");
+   PanelForgetRows();
+   g_panel_force = true;                // fresh objects hold no text yet
    ChartRedraw();
   }
 //+------------------------------------------------------------------+
@@ -2435,9 +2619,95 @@ void ReadEdits()
    UiSave();
   }
 //+------------------------------------------------------------------+
+//| A fingerprint of everything the panel shows. Building the 12 rows |
+//| costs more than comparing this, so compare first                 |
+//+------------------------------------------------------------------+
+long StrHash(const string s)
+  {
+   long h = 0;
+   int  l = StringLen(s);
+   for(int i = 0; i < l; i++)
+      h = h * 31 + StringGetCharacter(s, i);
+   return h;
+  }
+//+------------------------------------------------------------------+
+long PanelSig()
+  {
+   int n = ArraySize(g_pos);
+   long s = (long)n * 1000003;
+   s = s * 131 + (long)MathRound(g_basket.vol_total * 1000.0);
+   s = s * 131 + (long)MathRound(g_slPips * 10.0);
+   s = s * 131 + (long)MathRound(g_tpPips * 10.0);
+   s = s * 131 + (long)MathRound(g_beTrigger * 10.0);
+   s = s * 131 + (long)MathRound(g_beLock * 10.0);
+   s = s * 131 + (long)MathRound(g_trailDist * 10.0);
+   s = s * 131 + (long)MathRound(g_absSl * 100.0);
+   s = s * 131 + (long)MathRound(g_absTp * 100.0);
+   s = s * 131 + (long)g_sw;
+   s = s * 131 + (long)g_be_done_count * 3 + (long)g_be_partial_done;
+   s = s * 131 + (g_trailOn ? 1 : 0) + (g_news_enabled ? 2 : 0) + (g_paused ? 4 : 0)
+       + (g_killed ? 8 : 0) + (g_mini ? 16 : 0) + (g_page * 32) + (DryOn() ? 64 : 0)
+       + (g_news_active ? 128 : 0) + (g_news_calendar ? 256 : 0);
+   s = s * 131 + (long)MathRound(g_risk_pct * 10.0) * 977
+       + (long)MathRound(g_risk_money * 100.0) + g_news_errno * 13 + g_stop_pad * 7
+       + (long)g_lockout_until / 60 + g_last_ms / 5 * 3 + g_slow_ms / 5;
+   s = s * 131 + 3 * StrHash(g_last_action) + 11 * StrHash(g_warn)
+       + 17 * StrHash(g_info_line) + 23 * StrHash(g_news_desc);
+   if(n > 0)                                   // market-sensitive rows only matter with tickets
+     {
+      s = s * 131 + (long)MathRound(GroupNetMoney() * 100.0);
+      s = s * 131 + (long)MathRound(g_basket.avg_buy * 100.0) + (long)MathRound(g_basket.avg_sell * 100.0);
+      s = s * 131 + (long)MathRound(g_basket.gain_pips_buy * 10.0) + (long)MathRound(g_basket.gain_pips_sell * 10.0);
+      s = s * 131 + (long)MathRound(g_basket.swap * 100.0);
+     }
+   else
+      s = s * 131 + (long)MathRound(AcctEq() * 100.0) + (long)MathRound(AcctMarginLevel()) * 13;
+   s = s * 131 + (long)(NowMs() / 1000) % 997;   // the timing row ages once a second
+   return s;
+  }
+//+------------------------------------------------------------------+
+//| One panel row. The cache in front of it is what keeps a quiet      |
+//| chart at zero object writes instead of 12 labels per repaint.      |
+//+------------------------------------------------------------------+
+void RowSet(const int i, string txt, color clr)
+  {
+   if(i < 0 || i >= 14)
+      return;
+   if(g_row_known[i] && g_row_txt[i] == txt && g_row_clr[i] == clr)
+      return;
+   g_row_known[i] = true;
+   g_row_txt[i] = txt;
+   g_row_clr[i] = clr;
+   OLabel("L" + IntegerToString(i),InpPanelX+10,InpPanelY+42+i*14,txt,clr,InpFontSize);
+  }
+//+------------------------------------------------------------------+
+void PanelForgetRows()
+  {
+   for(int i = 0; i < 14; i++)
+      g_row_known[i] = false;              // fresh objects hold no text yet
+  }
+//+------------------------------------------------------------------+
+void PanelForce()
+  {
+   g_panel_ms = 0;
+   g_panel_force = true;
+  }
+//+------------------------------------------------------------------+
+//| Button caption, written only when the text really changed          |
+//+------------------------------------------------------------------+
+void BtnText(string name, string txt)
+  {
+   string o = GBG + "BTN_" + name;
+   if(ObjectGetString(0,o,OBJPROP_TEXT) != txt)
+     {
+      ObjectSetString(0,o,OBJPROP_TEXT,txt);
+      g_obj_dirty = true;
+     }
+  }
+//+------------------------------------------------------------------+
 void PanelUpdate()
   {
-   if(!InpShowPanel || IsTester() && !IsVisual())
+   if(!InpShowPanel || InTester() && !IsVisual())
       return;
    if(InpPanelRefreshMs > 0 && NowMs() - (long)g_panel_ms < InpPanelRefreshMs)
       return;                          // repaint at most every N ms; the loop is faster
@@ -2447,6 +2717,11 @@ void PanelUpdate()
       PanelCreate();
       return;
      }
+   long sig = PanelSig();
+   if(!g_panel_force && sig == g_panel_sig)
+      return;                          // nothing changed: no formatting, no writes, no redraw
+   g_panel_sig = sig;
+   g_panel_force = false;
    int    rowh = 14;
    int    n  = ArraySize(g_pos);
    double pl = GroupNetMoney();
@@ -2459,12 +2734,22 @@ void PanelUpdate()
          string want = SwCaption(i);
          string obj  = GBG + "BTN_TG" + IntegerToString(i);
          if(ObjectGetString(0,obj,OBJPROP_TEXT) != want)
+           {
             ObjectSetString(0,obj,OBJPROP_TEXT,want);
+            g_obj_dirty = true;
+           }
          color cc = (SwEffective(i) ? InpClrOk : (SwCanTurnOn(i) ? clrSilver : InpClrWarn));
          if((color)ObjectGetInteger(0,obj,OBJPROP_COLOR) != cc)
+           {
             ObjectSetInteger(0,obj,OBJPROP_COLOR,cc);
+            g_obj_dirty = true;
+           }
         }
-      ChartRedraw();
+      if(g_obj_dirty)
+        {
+         g_obj_dirty = false;
+         ChartRedraw();
+        }
       return;
      }
 
@@ -2475,10 +2760,13 @@ void PanelUpdate()
       s[1] = StringFormat("float -%.1f%% bal  |  close-all at %.0f%%", g_risk_pct, (double)InpEmergencyFloatLossPct);
       s[2] = "act: " + g_last_action;
       for(int i = 0; i < 3; i++)
-         OLabel("L" + IntegerToString(i),InpPanelX+10,InpPanelY+42+i*rowh,s[i],
-                (i == 0 ? c : InpClrText),InpFontSize);
-      ObjectSetString(0,GBG + "BTN_PAUSE",OBJPROP_TEXT,(g_paused || g_killed) ? "RESUME" : "PAUSE");
-      ChartRedraw();
+         RowSet(i,s[i],(i == 0 ? c : InpClrText));
+      BtnText("PAUSE",(g_paused || g_killed) ? "RESUME" : "PAUSE / RUN");
+      if(g_obj_dirty)
+        {
+         g_obj_dirty = false;
+         ChartRedraw();
+        }
       return;
      }
 
@@ -2494,10 +2782,10 @@ void PanelUpdate()
    else
       s[2] = "avg SELL -";
    s[3] = StringFormat("basket P/L: %s  (swap %s)  |  eq %s", MoneyStr(pl), MoneyStr(g_basket.swap),
-                       MoneyStr(AccountInfoDouble(ACCOUNT_EQUITY)));
+                       MoneyStr(AcctEq()));
    s[4] = StringFormat("risk at SL: %s (%.2f%% bal)  =  %.1f pips  |  %.2f/pip",
                        MoneyStr(g_risk_money),
-                       AccountInfoDouble(ACCOUNT_BALANCE) > 0 ? g_risk_money / AccountInfoDouble(ACCOUNT_BALANCE) * 100.0 : 0.0,
+                       AcctBal() > 0 ? g_risk_money / AcctBal() * 100.0 : 0.0,
                        g_slPips, GroupMoneyPerPip());
    s[5] = StringFormat("SL %.1f p -> %s | TP %.1f p -> %s", g_slPips, LevelHint(true), g_tpPips, LevelHint(false));
    s[6] = StringFormat("risk-free: %s arm %.1f p, lock %.1f p, done %d | trail %s",
@@ -2508,7 +2796,7 @@ void PanelUpdate()
    else
       s[7] = "news: guard OFF";
    s[8] = StringFormat("margin %.1f%% | free %s | day P/L %s | dd %.1f%% | float -%.1f%% bal",
-                       AccountInfoDouble(ACCOUNT_MARGIN_LEVEL), MoneyStr(AccountInfoDouble(ACCOUNT_MARGIN_FREE)),
+                       AcctMarginLevel(), MoneyStr(AcctFreeMargin()),
                        MoneyStr(DayPnl()),
                        g_peak_equity > 0 ? (g_peak_equity - AccountInfoDouble(ACCOUNT_EQUITY)) / g_peak_equity * 100.0 : 0.0,
                        g_risk_pct);
@@ -2519,46 +2807,38 @@ void PanelUpdate()
                        InpRiskWarnPct,
                        DryOn() ? "ON" : "off");
    s[10]= StringFormat("act: %s | stops %d pt (+%d ad) | %s", g_last_action,
-                       (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL), g_stop_pad,
-                       g_hedging ? "hedging" : "netting");
+                       StopsOf(_Symbol), g_stop_pad, g_hedging ? "hedging" : "netting");
    if(g_paused || g_killed || g_lockout_until > 0 || StringLen(g_warn) > 0 || StringLen(g_info_line) > 0)
      {
       string st = (g_killed ? "KILL/LOCK ACTIVE  " : (g_paused ? "PAUSED  " : "")) + g_warn + " " + g_info_line;
       if(g_news_errno != 0)
          st = st + StringFormat(" [calendar err %d]", g_news_errno);
       s[11] = st;
-      OLabel("L11",InpPanelX+10,InpPanelY+42+11*rowh,s[11],InpClrWarn,InpFontSize);
+      RowSet(11,s[11],InpClrWarn);
      }
    else
      {
-      string cad = (InpTimerMs > 0 && !IsTester()) ? StringFormat("loop %d ms", MathMax(20, InpTimerMs))
+      string cad = (InpTimerMs > 0 && !InTester()) ? StringFormat("loop %d ms", MathMax(20, InpTimerMs))
                                                    : "loop OnTick only";
       s[11] = (n == 0 ? "waiting for positions of the group"
                       : StringFormat("%s | cycle %d ms (max %d) | spread %d pt | %s", cad,
-                                     g_last_ms, g_slow_ms,
-                                     (int)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD),
+                                     g_last_ms, g_slow_ms, g_a_spread,
                                      g_news_calendar ? "calendar ok" : "calendar unavailable"));
-      OLabel("L11",InpPanelX+10,InpPanelY+42+11*rowh,s[11],InpClrText,InpFontSize);
+      RowSet(11,s[11],InpClrText);
      }
 
    for(int i = 0; i < 11; i++)
-      OLabel("L" + IntegerToString(i),InpPanelX+10,InpPanelY+42+i*rowh,s[i],
-             (i == 3 ? c : (i == 7 && g_news_active ? InpClrWarn : InpClrText)),InpFontSize);
+      RowSet(i,s[i],(i == 3 ? c : (i == 7 && g_news_active ? InpClrWarn : InpClrText)));
 
-   string bt;
-   bt = g_trailOn ? "TRAIL ON" : "TRAIL OFF";
-   if(ObjectGetString(0,GBG + "BTN_TRAIL",OBJPROP_TEXT) != bt)
-      ObjectSetString(0,GBG + "BTN_TRAIL",OBJPROP_TEXT,bt);
-   bt = (g_paused || g_killed) ? "RESUME" : "PAUSE / RUN";
-   if(ObjectGetString(0,GBG + "BTN_PAUSE",OBJPROP_TEXT) != bt)
-      ObjectSetString(0,GBG + "BTN_PAUSE",OBJPROP_TEXT,bt);
-   bt = g_news_enabled ? "NEWS ON" : "NEWS OFF";
-   if(ObjectGetString(0,GBG + "BTN_NEWS",OBJPROP_TEXT) != bt)
-      ObjectSetString(0,GBG + "BTN_NEWS",OBJPROP_TEXT,bt);
-   bt = StringFormat("CLOSE %s%%", DoubleToString(PartPct(),0));
-   if(ObjectGetString(0,GBG + "BTN_CLOSEPART",OBJPROP_TEXT) != bt)
-      ObjectSetString(0,GBG + "BTN_CLOSEPART",OBJPROP_TEXT,bt);
-   ChartRedraw();
+   BtnText("TRAIL",     g_trailOn ? "TRAIL ON" : "TRAIL OFF");
+   BtnText("PAUSE",     (g_paused || g_killed) ? "RESUME" : "PAUSE / RUN");
+   BtnText("NEWS",      g_news_enabled ? "NEWS ON" : "NEWS OFF");
+   BtnText("CLOSEPART", StringFormat("CLOSE %s%%", DoubleToString(PartPct(),0)));
+   if(g_obj_dirty)
+     {
+      g_obj_dirty = false;
+      ChartRedraw();
+     }
   }
 //+------------------------------------------------------------------+
 //| Part of the group the CLOSE PART button takes off (clamped)       |
@@ -2601,13 +2881,6 @@ string LevelHint(bool is_sl)
    return DoubleToString(lvl,g_digits);
   }
 //+------------------------------------------------------------------+
-//| Account currency                                                   |
-//+------------------------------------------------------------------+
-string AccountCurrency()
-  {
-   return AccountInfoString(ACCOUNT_CURRENCY);
-  }
-//+------------------------------------------------------------------+
 //| Money units: cent / dollar / any broker currency                  |
 //+------------------------------------------------------------------+
 void DetectAccountUnits()
@@ -2643,6 +2916,8 @@ double RealMoney(const double v)
 //+------------------------------------------------------------------+
 double MoneyPerPipPerLot(string sym)
   {
+   if(sym == g_a_mpp_sym && g_a_mpp_lot >= 0.0)
+      return g_a_mpp_lot;            // once per snapshot: this is three accessor calls
    double tv = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE);
    if(tv <= 0.0)
       tv = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE_LOSS);
@@ -2653,7 +2928,9 @@ double MoneyPerPipPerLot(string sym)
       ts = g_point;
    if(tv <= 0.0 || ts <= 0.0)
       return 0.0;
-   return (g_pip / ts) * tv;
+   g_a_mpp_sym = sym;
+   g_a_mpp_lot = (g_pip / ts) * tv;
+   return g_a_mpp_lot;
   }
 //+------------------------------------------------------------------+
 double GroupMoneyPerPip()
@@ -2676,7 +2953,7 @@ void ApplyRiskSizing()
       return;
      }
 
-   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   double bal = AcctBal();
    if(bal <= 0.0)
       return;
 
@@ -2754,10 +3031,27 @@ void GVSet(string name, double v)
 //+------------------------------------------------------------------+
 datetime ServerNow()
   {
+   if(g_a_fresh)
+      return g_a_snow;                     // one clock per cycle, not one per guard
    datetime t = TimeTradeServer();
    if(t <= 0)
       t = TimeCurrent();
    return t;
+  }
+//+------------------------------------------------------------------+
+//| The algo-trading switch, checked at most once a second            |
+//+------------------------------------------------------------------+
+bool TradeAllowedNow()
+  {
+   if(InTester())
+      return true;
+   long ms = NowMs();
+   if(g_a_allowed_ms >= 0 && ms - g_a_allowed_ms < 1000)
+      return g_a_allowed;
+   g_a_allowed_ms = ms;
+   g_a_allowed = (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) != 0 &&
+                  MQLInfoInteger(MQL_TRADE_ALLOWED) != 0);
+   return g_a_allowed;
   }
 //+------------------------------------------------------------------+
 int SecsOfDay(datetime t)
@@ -2928,7 +3222,7 @@ void NewsScan()
    g_news_active   = false;
    g_news_next_time= 0;
 
-   if(IsTester())
+   if(InTester())
      {
       g_news_calendar = false;
       g_news_desc = "calendar not available in tester - use InpNewsManualWindows";
@@ -3071,7 +3365,7 @@ int CloseAllPositions(string reason)
       for(int r = 0; r <= InpRetryCount && !done; r++)
         {
          done = g_trade.PositionClose(t, (ulong)InpDeviationPoints);
-         if(!done && r < InpRetryCount && !IsTester())
+         if(!done && r < InpRetryCount && !InTester())
             Sleep(InpRetryDelayMs);
         }
       if(done) closed++;
@@ -3092,8 +3386,8 @@ int CloseAllPositions(string reason)
 //+------------------------------------------------------------------+
 void RiskWarning()
   {
-   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
-   double eq  = AccountInfoDouble(ACCOUNT_EQUITY);
+   double bal = AcctBal();
+   double eq  = AcctEq();
    g_risk_pct = (bal > 0.0 ? MathMax(0.0, (bal - eq) / bal * 100.0) : 0.0);
    if(!UseWarn() || bal <= 0.0)
       return;
@@ -3124,10 +3418,10 @@ void EmergencyGuard()
    if(g_killed || !UseBreaker())
       return;
 
-   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
-   double eq  = AccountInfoDouble(ACCOUNT_EQUITY);
-   double ml  = AccountInfoDouble(ACCOUNT_MARGIN_LEVEL);
-   double fm  = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   double bal = AcctBal();
+   double eq  = AcctEq();
+   double ml  = AcctMarginLevel();
+   double fm  = AcctFreeMargin();
    double fl  = eq - bal;                              // account-wide floating P/L
 
    if(eq > g_peak_equity)
@@ -3205,7 +3499,7 @@ bool CloseSingle(ulong ticket, string reason)
          g_dirty = true;
          return true;
         }
-      if(!IsTester())
+      if(!InTester())
          Sleep(InpRetryDelayMs);
      }
    return false;

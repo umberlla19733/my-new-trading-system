@@ -403,6 +403,87 @@ def ui_unpack(saved: dict) -> tuple[int, dict]:
     return bits, values
 
 
+# --------------------------------------------------------------------------
+# The v1.14+ performance layer: snapshots, panel diffing, idle loop
+# --------------------------------------------------------------------------
+class Snapshot:
+    """Mirror of SnapRead()/SnapReset() and the lazy accessors.
+
+    A cycle reads balance, equity, margin, quotes and the clock ONCE. Any order
+    marks the snapshot stale, so the next read goes back to the terminal - that
+    is what keeps the circuit breaker from deciding on numbers from before a close.
+    """
+
+    def __init__(self, terminal):
+        self.terminal = terminal            # dict of live values, as the terminal has them
+        self.cache = {}
+        self.reads = 0                      # accessor trips, the thing we are minimising
+        self.fresh = False
+
+    def get(self, key):
+        if not self.fresh:
+            self.reads += 1
+            self.cache = dict(self.terminal)
+            self.fresh = True
+        return self.cache[key]
+
+    def reset(self):
+        self.fresh = False
+
+
+def panel_writes(prev_sig, sig, forced):
+    """RowSet()/OLabel() are only reached when the panel content really moved."""
+    return forced or sig != prev_sig
+
+
+def next_timer_ms(positions_total, group_tickets, fast_ms, idle_ms):
+    """TuneTimer(): one Hz while the account holds nothing, 10 Hz as soon as it does."""
+    if positions_total == 0 and group_tickets == 0:
+        return max(fast_ms, idle_ms)
+    return max(20, fast_ms)
+
+
+def group_match(sym, magic, comment, pos_type, open_time, cfg):
+    """Everything CollectGroup requires of a ticket: market position + MatchPosition."""
+    if pos_type not in ("BUY", "SELL"):        # the loop's first line, before the rest
+        return False
+    if cfg.get("symbol_filter") and sym not in cfg["symbol_filter"]:
+        return False
+    if cfg.get("magic") and magic != cfg["magic"]:
+        return False
+    if pos_type == "BUY" and not cfg.get("buy", True):
+        return False
+    if pos_type == "SELL" and not cfg.get("sell", True):
+        return False
+    if cfg.get("ignore_manual") and not comment:
+        return False
+    if cfg.get("comment") and cfg["comment"] not in comment:
+        return False
+    if cfg.get("only_after_attach") and open_time < cfg["start"]:
+        return False
+    return True
+
+
+def group_precheck(sym, magic, comment, pos_type, open_time, cfg):
+    """The cheap pre-filter CollectGroup runs before it touches the expensive rules.
+
+    It must never drop a ticket that the full check would have accepted.
+    """
+    if pos_type not in ("BUY", "SELL"):
+        return False
+    if pos_type == "BUY" and not cfg.get("buy", True):
+        return False
+    if pos_type == "SELL" and not cfg.get("sell", True):
+        return False
+    if cfg.get("magic") and magic != cfg["magic"]:
+        return False
+    if cfg.get("only_after_attach") and open_time < cfg["start"]:
+        return False
+    if cfg.get("symbol_filter") and sym not in cfg["symbol_filter"]:
+        return False
+    return True
+
+
 def in_manual_window(minutes_now: int, dow_now: int, windows: str) -> bool:
     """'HH:MM-HH:MM' (all days) or 'DOW-HH:MM-HH:MM' (0=Sunday), server time."""
     for raw in (windows or "").split(";"):
@@ -760,14 +841,48 @@ def run_tests() -> int:
           gates({}, ui_unpack({"SW": float(bits_default({}))})[0])["kill"] is False
           and bits_default({}) == bits_default({"persist_panel": False}))
 
+    # 12) the lightness layer: snapshot, panel diff, idle loop, pre-filter
+    term = {"bal": 10000.0, "eq": 9400.0, "ml": 410.0, "fm": 8000.0}
+    snap = Snapshot(term)
+    for _ in range(6):
+        snap.get("eq")
+    check("one snapshot per cycle, not one per guard", snap.reads == 1)
+    term["eq"] = 3500.0                        # an order went out and moved equity
+    snap.reset()
+    check("an order invalidates the snapshot", snap.get("eq") == 3500.0 and snap.reads == 2)
+    snap.get("bal")
+    check("reads inside one cycle stay cached", snap.reads == 2)
+    check("a quiet chart writes nothing", panel_writes(42, 42, False) is False)
+    check("a click paints at once even with the same numbers", panel_writes(42, 42, True) is True)
+    check("changed numbers paint", panel_writes(42, 43, False) is True)
+    check("idle loop is 1 Hz, live loop 10 Hz",
+          next_timer_ms(0, 0, 100, 1000) == 1000 and next_timer_ms(3, 3, 100, 1000) == 100)
+    check("positions outside the group still keep the fast loop",
+          next_timer_ms(2, 0, 100, 1000) == 100)
+    cfgs = [{}, {"magic": 7}, {"buy": False}, {"sell": False}, {"ignore_manual": True},
+            {"comment": "GBG"}, {"only_after_attach": True, "start": 100},
+            {"symbol_filter": {"XAUUSD"}, "magic": 7, "comment": "GBG", "only_after_attach": True,
+             "start": 100}]
+    ok = True
+    for sym in ("XAUUSD", "EURUSD"):
+        for mg in (0, 7, 9):
+            for cmt in ("", "GBG-3", "manual note"):
+                for typ in ("BUY", "SELL", "PENDING"):
+                    for ot in (50, 100, 500):
+                        for c in cfgs:
+                            if group_precheck(sym, mg, cmt, typ, ot, c) is False and \
+                               group_match(sym, mg, cmt, typ, ot, c) is True:
+                                ok = False
+    check("the cheap pre-filter never drops a ticket the group would take", ok)
+
     if fails:
         print("FAILED:")
         for f in fails:
             print("  - " + f)
         return 1
     print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror + echo guard, risk-free, "
-          "trail, limits, sizing, cent, 60%% breaker, 40%% warning, news, panel switches + money fields)"
-          % (passed[0], passed[0] + len(fails)))
+          "trail, limits, sizing, cent, 60%% breaker, 40%% warning, news, panel switches + money "
+          "fields, lightness layer)" % (passed[0], passed[0] + len(fails)))
     return 0
 
 

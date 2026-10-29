@@ -99,7 +99,7 @@ def pipeline(cfg: dict) -> list:
     news_act = enum_name(cfg, "ENUM_NEWS_ACTION", "InpNewsAction")
     risk_pct = fnum(cfg, "InpRiskPctPerBasket")
     steps = [
-        ("شروع هر تیک", f"OnTick و تایمر {pnum(fnum(cfg, 'InpTimerMs'))} میلی‌ثانیه؛ سقف {pnum(fnum(cfg, 'InpMaxModsPerSecond'))} درخواست تغییر در ثانیه", GOLD),
+        ("شروع هر تیک", f"OnTick و تایمر {pnum(fnum(cfg, 'InpTimerMs'))} میلی‌ثانیه؛ سقف {pnum(fnum(cfg, 'InpMaxModsPerSecond'))} درخواست تغییر در ثانیه. اگر حساب هیچ پوزیشنی نداشته باشد تایمر تا {pnum(fnum(cfg, 'InpIdleRefreshMs'))} میلی‌ثانیه آرام می‌شود و با اولین پوزیشن برمی‌گردد؛ یک snapshot از حساب و قیمت در شروع چرخه خوانده می‌شود و بین همهٔ گاردها تقسیم می‌گردد", GOLD),
         ("گروه را پیدا کن", "سمبل + مَجیک + کامنت + جهت + فیلتر زمان؛ تشخیص hedging یا netting", BLUE),
         ("سبد را بساز", "میانگین ورود، حجم کل، پیپ سود/زیان، ریسک روی SL، کمیسیون و swap برآوردی", BLUE),
         ("ویرایش دستی شده؟", "اگر SL یا TP یک معامله را عوض یا پاک کردی، همان روی همهٔ گروه کپی می‌شود؛ داخل خودِ رویداد معامله، بدون پنجرهٔ کوری چندثانیه‌ای", BLUE),

@@ -5,6 +5,26 @@
 فایل اصلی: [`MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5`](MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5)
 نسخهٔ نهایی (فایل اکسپرت + مستندات + تصویرها، آمادهٔ دانلود): [`release/GoldBasketGuard/`](release/GoldBasketGuard/)
 
+### تازه‌ها در نسخهٔ ۱.۱۵ — سبک‌سازی (هیچ قابلیتی حذف نشد)
+
+- **یک snapshot از حساب در هر چرخه:** موجودی، equity، مارجین‌لول، فری‌مارجین، بودِ اسپرد،
+  حدِ مجاز بروکر و ساعت سرور یک‌بار خوانده می‌شوند و بین همهٔ گاردها (هشدار ریسک، بریکر،
+  kill-switch، ریسک‌فری، سایز ریسک، تریلینگ) مشترک‌اند. هر دستورِ ارسالی snapshot را باطل می‌کند تا
+  گارد بعدی روی عددِ کهنه تصمیم نگیرد.
+- **پنل فقط وقتی نقاشی می‌شود که چیزی عوض شده باشد:** اثرانگشتِ محتوا + کشِ هر سطر. روی چارتِ
+  ساکت هیچ نوشتنی روی آبجکت‌ها انجام نمی‌شود (پیش از این هر ۱۵۰ میلی‌ثانیه ۴۳ نوشتن و یک بازطراحی
+  کامل چارت بود).
+- **حلقهٔ آرام وقتی حساب خالی است:** ورودی تازهٔ `InpIdleRefreshMs` با پیش‌فرض `1000`؛ با اولین
+  پوزیشن باز، حلقه خودش به `InpTimerMs` (۱۰۰ میلی‌ثانیه) برمی‌گردد — واکنش موقع معامله کم نمی‌شود.
+- **فیلترهای ارزان قبل از فیلترهای گران** در جمع‌آوری گروه، و پرچم‌های ترمینال (`IsTester`) یک‌بار در
+  `OnInit` به‌جای هر گارد؛ چهار نویسندهٔ آبجکت پنل هم در یک تابع مشترک جمع شدند.
+- اندازه‌گیری‌شده: چرخهٔ مدیریت با ۵ پوزیشن **۲۳۵ → ۲۰۱** فراخوانی ترمینال؛ حسابِ بی‌پوزیشن
+  **۱۴۰۰ → ۱۲۶ فراخوانی در ثانیه** (حدود ۱۱ برابر سبک‌تر). رفتار اکسپرت عوض نشده، فقط تعداد
+  پرس‌وجو از ترمینال.
+- `tools/mql5_cost.py` همین هزینه را روی خود فایل اکسپرت می‌سنجد و `tools/make_release.py` تا
+  بودجه‌ها پاس نباشند (۲۴۰ برای چرخهٔ فعال، ۱۵۰ برای چرخهٔ بیکار) نسخه نمی‌سازد. تعداد بررسی‌های
+  منطق هم به **۱۱۳** رسید (کشِ snapshot، پرشِ نقاشی پنل، ترتیب فیلترهای گروه، عقب‌نشینی حلقه).
+
 ### تازه‌ها در نسخهٔ ۱.۱۴
 
 - **۱۲ کلید روشن/خاموش روی پنل** (صفحهٔ دوم، کلید `8`): میرورینگ، اعمال خودکار، ریسک‌فری، هشدار،
@@ -316,17 +336,17 @@ GOLD BASKET GUARD          XAUUSD | pip = 0.100 (10 pt) | switches
 
 ```bash
 python3 tools/mql5_lint.py MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   # بررسی ساختار فایل
-python3 tools/gold_pip_calc.py --test                                          # ۱۰۴ بررسی منطقی
+python3 tools/gold_pip_calc.py --test                                          # ۱۱۳ بررسی منطقی
 python3 tools/make_feature_sheet.py                                            # ساخت تصویر قابلیت‌ها
 python3 tools/make_flow_sheet.py                                               # ساخت تصویر عملکرد
 bash tools/setup_render_env.sh                                                 # (یک‌بار) نصب Pillow + فونت Vazirmatn
-python3 tools/make_release.py --check-only                                     # ۱۹ بررسی قبل از انتشار
+python3 tools/make_release.py --check-only                                     # ۲۶ بررسی قبل از انتشار
 python3 tools/make_release.py                                                  # ساخت release/GoldBasketGuard + zip
 ```
 
-پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۱۹ بررسی پاس باشد**
+پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۲۶ بررسی پاس باشد**
 (لینت، تست منطق، تک‌فایل بودن، ASCII بودن، توازن آکولاد، یکتا بودن ورودی‌ها و
-**«قرارداد صفرتنظیم»**: ۴۱ ورودی که باید دقیقاً همان پیش‌فرض‌های آمادهٔ طلا باشند —
+**«قرارداد صفرتنظیم»**: ۴۲ ورودی که باید دقیقاً همان پیش‌فرض‌های آمادهٔ طلا باشند —
 اگر روزی کسی یک پیش‌فرض را عوض کند و اکسپرت دوباره به فایل `.set` نیاز پیدا کند،
 دروازهٔ ریلیز همان لحظه می‌شکند). در `manifest.txt` هم checksum هر فایل و هم لیست
 بررسی‌های پاس‌شده ثبت می‌شود.
@@ -338,12 +358,12 @@ python3 tools/make_release.py                                                  #
 ```
 MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   اکسپرت (تک‌فایل، بدون وابستگی)
 release/GoldBasketGuard/                           نسخهٔ نهایی + manifest + راهنمای نصب
-release/GoldBasketGuard-v1.14.zip                  همان پوشه، آمادهٔ دانلود
+release/GoldBasketGuard-v1.15.zip                  همان پوشه، آمادهٔ دانلود
 docs/GoldBasketGuard-parameters.md                 توضیح تک‌تک ورودی‌ها (فارسی)
 docs/GoldBasketGuard-features-fa.png               نقشهٔ گرافیکی قابلیت‌ها (فارسی)
 docs/GoldBasketGuard-flow-fa.png                   نقشهٔ گرافیکی عملکرد مدیریت سرمایه
 tools/mql5_lint.py                                 لینت سبک MQL5
-tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۱۰۴ بررسی)
+tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۱۱۳ بررسی)
 tools/setup_render_env.sh                          نصب محیط رندر (venv + Pillow + فونت فارسی)
 tools/make_feature_sheet.py                        مولد تصویر قابلیت‌ها (Pillow + Vazirmatn)
 tools/make_flow_sheet.py                           مولد تصویر عملکرد + شبیه‌سازی قوانین تریلینگ
@@ -367,6 +387,7 @@ The release-ready copy of the EA, the Persian parameter reference and both diagr
 - **cent or dollar account detected automatically** (account currency `USD`/`EUR`/… vs `USC`/`Euro Cent`/…), all money inputs converted, so one file works on every broker;
 - optional basket money take/stop, partial volume reduction, a 40% risk warning that closes nothing,
   and one automatic close-all: the account breaker at 60% of balance at risk, chart panel with editable fields, buttons and hotkeys;
+- **v1.15 lightness pass** (nothing removed): one account snapshot per cycle shared by all guards and invalidated by every order sent, the panel repaints only when its content fingerprint changes (a quiet chart now writes zero chart objects instead of 43 per repaint), the management loop backs off to 1 Hz while the account holds no positions (`InpIdleRefreshMs`) and returns to 100 ms as soon as one opens, cheap group filters run before expensive ones, and terminal flags are read once in `OnInit`. Measured with the new `tools/mql5_cost.py`: 235 -> 201 terminal calls per cycle with five tickets, 1400 -> 126 calls per second on an idle chart, and `tools/make_release.py` now refuses to build a release that exceeds its cost budget;
 - **12 panel switches** (v1.14): mirror, auto-apply, risk-free, warning, kill switch, breaker, daily guard, money exits, risk sizing, adaptive stops, alerts and dry run are toggled on the chart itself; a feature turns off from the panel always, and turns on whenever its Inputs already carry the mode/threshold. Switch state, pause, trail, news and every typed number are remembered per account + symbol, with `RESET UI` to go back to Inputs;
 - one-click partial close (`CLOSE 50%`, percent typed on the panel), `CLOSE WINNERS`, money SL/TP fields converted through the live group volume, and a compact 3-line panel mode;
 - broker-aware: stops/freeze levels, deviation, per-ticket cool-down, rate limiting, retries, dry-run mode, hedging vs netting detection.
