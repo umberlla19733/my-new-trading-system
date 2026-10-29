@@ -61,6 +61,13 @@ def load_config() -> dict:
     return ea_inputs()
 
 
+def switch_count() -> int:
+    """How many on/off switches the panel exposes (read from the EA, never typed here)."""
+    src = EA.read_text(encoding="utf-8")
+    m = re.search(r"enum ENUM_SWITCH.*?\{(.*?)\};", src, re.S)
+    return len(re.findall(r"SW_\w+\s*=", m.group(1))) if m else 0
+
+
 def enum_name(cfg: dict, enum: str, key: str) -> str:
     raw = cfg.get(key, "0")
     return cfg.get(f"__enum__{enum}__{raw}", raw) if re.fullmatch(NUM, raw) else raw
@@ -98,6 +105,13 @@ def pipeline(cfg: dict) -> list:
         ("ویرایش دستی شده؟", "اگر SL یا TP یک معامله را عوض یا پاک کردی، همان روی همهٔ گروه کپی می‌شود؛ داخل خودِ رویداد معامله، بدون پنجرهٔ کوری چندثانیه‌ای", BLUE),
         ("سطح مطلوب گروه", f"حد ضرر {pnum(sl)} پیپ و حد سود {pnum(tp)} پیپ، در حالت اعمال انتخابی", GOLD),
     ]
+    nsw = switch_count()
+    if nsw:
+        steps.insert(5, ("کلیدهای پنل",
+                         f"{M.pd(nsw)} کلید روشن/خاموش روی صفحهٔ دوم پنل (کلید {M.pd(8)})؛ "
+                         "خاموش کردن همیشه از پنل ممکن است، روشن کردن وقتی Inputs آستانه یا حالتش را داده باشد؛ "
+                         f"انتخاب‌ها برای همین حساب و نماد ذخیره می‌شوند (InpPersistPanel={'روشن' if flag(cfg, 'InpPersistPanel') else 'خاموش'})",
+                         CYAN))
     if flag(cfg, "InpNewsEnabled"):
         steps.append(("گارد اخبار قرمز",
                       f"تقویم MT5، فقط اهمیت HIGH؛ {pnum(fnum(cfg, 'InpNewsBeforeMin', 20))} دقیقه قبل "

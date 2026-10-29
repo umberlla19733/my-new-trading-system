@@ -5,6 +5,21 @@
 فایل اصلی: [`MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5`](MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5)
 نسخهٔ نهایی (فایل اکسپرت + مستندات + تصویرها، آمادهٔ دانلود): [`release/GoldBasketGuard/`](release/GoldBasketGuard/)
 
+### تازه‌ها در نسخهٔ ۱.۱۴
+
+- **۱۲ کلید روشن/خاموش روی پنل** (صفحهٔ دوم، کلید `8`): میرورینگ، اعمال خودکار، ریسک‌فری، هشدار،
+  kill-switch، بریکر، گارد روزانه، خروج پولی، سایز ریسک، تطبیق با بروکر، آلارم‌ها و Dry-Run.
+- **ذخیرهٔ انتخاب‌ها** برای همین حساب و نماد (کلیدها، `PAUSE`، تریلینگ، گارد اخبار، اعداد تایپی) +
+  دکمهٔ `RESET UI`. بدون فایل پیش‌تنظیم، همان‌طور که قبلاً هم لازم نبود.
+- **`CLOSE 50%`** با درصد دلخواه (کادر `part %`) و **`CLOSE WINNERS`**؛ هر دکمهٔ بستن تایمر تأیید
+  مستقل خودش را دارد.
+- **کادرهای پولی `SL money` / `TP money`** روی پنل: عدد به واحد ارز حساب است و با حجم زندهٔ گروه به
+  پیپ تبدیل می‌شود (روی حساب سنتی هم درست، بدون ضریب دستی).
+- `Enter` در کادرها حالا واقعاً ذخیره و (با `AUTO-APPLY`) اعمال می‌شود، هر کلیک یک چرخهٔ مدیریت را
+  بلافاصله اجرا می‌کند، و نقاشی پنل فقط وقتی نوشته می‌شود که متن تغییر کرده باشد (بدون چشمک).
+- اگر حد ضرر یا حد سود شما نزدیک‌تر از **حداقل مجاز بروکر** باشد، اکسپرت دیگر بی‌صدا آن را دور نمی‌اندازد:
+  سطح روی همان حداقل مجاز گذاشته می‌شود (دورتر از بازار، هرگز نزدیک‌تر) و در لاگ نوشته می‌شود.
+
 ### نقشهٔ کامل قابلیت‌ها در یک تصویر
 
 ![قابلیت‌های GoldBasketGuard](docs/GoldBasketGuard-features-fa.png)
@@ -95,7 +110,7 @@ python3 tools/gold_pip_calc.py --move 2650.00 2673.40 --digits 2
 3. از این به بعد کافی است روی **یکی** از معاملات حد سود یا حد ضرر را با ماوس جابه‌جا کنید؛ اکسپرت همان را به بقیه کپی می‌کند و آن مقدار را **یادش می‌ماند** (معاملهٔ جدید بعدی هم همان را می‌گیرد). اگر عدد را دوباره در پنل تایپ کنید، برمی‌گردد به حالت «فاصله بر حسب پیپ».
 4. `BE arm = 200` یعنی وقتی میانگین گروه ۲۰۰ پیپ (۲۰ دلار) در سود رفت، حد ضرر همه روی **ورود + ۱۰ پیپ** می‌نشیند → گروه ریسک‌فری.
 5. `TRAIL` روشن است: از ۲۵۰ پیپ سود به بعد، هر ۳۰ پیپ سود جدید ۳۰ پیپ دیگر قفل می‌شود.
-6. **سیاست بستن (v1.13):** اکسپرت به‌جز یک حالت، هیچ چیزی را از شدت فشار نمی‌بندد — اگر ضرر شناور **کل حساب** به **۶۰٪ موجودی** رسید، همه بسته و اکسپرت قفل می‌شود. از **۴۰٪** فقط **هشدار** می‌دهد (Alert + پوش + خط زرد پنل) و هیچ دستوری نمی‌فرستد. kill-switch قدیمی (۱۲٪) و بستن بر اساس مارجین‌لول به‌صورت پیش‌فرض **خاموش‌اند** و گارد اخبار هم فقط هشدار می‌دهد.
+6. **سیاست بستن (v1.13، بدون تغییر در v1.14):** اکسپرت به‌جز یک حالت، هیچ چیزی را از شدت فشار نمی‌بندد — اگر ضرر شناور **کل حساب** به **۶۰٪ موجودی** رسید، همه بسته و اکسپرت قفل می‌شود. از **۴۰٪** فقط **هشدار** می‌دهد (Alert + پوش + خط زرد پنل) و هیچ دستوری نمی‌فرستد. kill-switch (روی همان خط ۶۰٪)، بستن بر اساس مارجین‌لول و بستن خبری به‌صورت پیش‌فرض **خاموش‌اند**. از v1.14 هرکدام را می‌توانید با **کلیدهای پنل** روشن/خاموش کنید (بدون تغییر `Inputs`) و همان حالت هم ذخیره می‌شود.
 
 قبل از شمارهٔ ۲ می‌توانید یک بار با `InpDryRun=true` اجرا کنید و تب `Experts` را بخوانید تا دقیقاً ببینید چه سطحی می‌فرستد (بدون ارسال هیچ دستوری).
 
@@ -103,33 +118,78 @@ python3 tools/gold_pip_calc.py --move 2650.00 2673.40 --digits 2
 
 ## ۴) پنل روی نمودار
 
+پنل دو صفحه دارد: **صفحهٔ پایش** (اطلاعات گروه + دکمه‌ها + کادرهای عددی) و **صفحهٔ کلیدها**
+(روشن/خاموش کردن قابلیت‌ها، بدون باز کردن `Inputs`).
+
 ```
-GOLD BASKET GUARD                XAUUSD | pip = 0.100 (10 pt)
+GOLD BASKET GUARD          XAUUSD | pip = 0.100 (10 pt) | monitor
 group: 4 tickets (4 buy / 0 sell) vol 0.80 | USD
 avg BUY  2641.25  +32.4 pips
 avg SELL -
 basket P/L: 142.30  (swap -1.20)  |  eq 5342.10
 risk at SL: 150.00 (3.00% bal)  =  300.0 pips  |  10.00/pip
 SL 300.0 p -> 2611.25 | TP 500.0 p -> 2691.25
-risk-free: arm 200.0 p, lock 10.0 p, done 3 | trail ON
+risk-free: ON arm 200.0 p, lock 10.0 p, done 3 | trail ON
 news: clear (37 events checked, server time)
-margin 412.5% | free 4980.10 | day P/L -120.40 | dd 1.8%
-spread 25 pt | stops 0 pt (+0 ad) | freeze 0 pt | hedging
-act: auto -> 4 ticket(s) SL 300.0 p / TP 500.0 p
-live | dry-run off | calendar ok
-[SL pips] [TP pips] [BE arm] [BE lock] [Trail dist]
-[APPLY TP+SL] [APPLY SL] [APPLY TP]
-[RISK-FREE NOW] [TRAIL ON/OFF] [CLEAR SL/TP]
-[CLOSE ALL] [CLOSE LOSERS] [PAUSE / RUN]
-[NEWS ON] [UNLOCK]
+margin 412.5% | free 4980.10 | day P/L -120.40 | dd 1.8% | float -12.4% bal
+mirror on | auto on | breaker 60% | warn 40% | dry off
+act: auto -> 4 ticket(s) SL 300.0 p / TP 500.0 p | stops 0 pt (+0 ad) | hedging
+loop 100 ms (max 9) | spread 25 pt | calendar ok
+[SL pips 300.0] [TP pips 500.0] [BE arm 200.0] [BE lock 10.0]
+[Trail 50.0] [SL money 0] [TP money 0] [part % 50]
+[APPLY TP+SL]  [APPLY SL]   [APPLY TP]
+[RISK-FREE NOW][TRAIL ON]   [CLEAR SL/TP]
+[CLOSE ALL]    [CLOSE LOSERS][CLOSE 50%]
+[NEWS ON]      [PAUSE / RUN][UNLOCK]
+[CLOSE WINNERS][SWITCHES 12][MINIMISE]
 ```
 
-دو خط مهم: `risk at SL` می‌گوید اگر حد ضرر گروه بخورد دقیقاً چه مبلغی (و چند درصد موجودی) از دست می‌رود؛ `news` وضعیت تقویم اقتصادی و نزدیک‌ترین رویداد را نشان می‌دهد و وقتی در پنجرهٔ خبر باشیم به رنگ نارنجی درمی‌آید.
+خط `risk at SL` می‌گوید اگر حد ضرر گروه بخورد دقیقاً چه مبلغی (و چند درصد موجودی) می‌رود؛ خط
+`news` وضعیت تقویم اقتصادی و نزدیک‌ترین رویداد را نشان می‌دهد و داخل پنجرهٔ خبر نارنجی می‌شود؛
+`float -NN% bal` همان عددی است که هشدار ۴۰٪ و بریکر ۶۰٪ روی آن نشسته‌اند.
 
+### ۴-الف) صفحهٔ کلیدها: هر قابلیت یک سوئیچ (جدید در ۱.۱۴)
 
-- کادرهای ویرایش‌پذیر: می‌توانید عدد را روی نمودار عوض کنید؛ با زدن `Enter` ذخیره می‌شود و دکمه‌ها از همان عدد استفاده می‌کنند.
-- `CLOSE ALL` و `CLOSE LOSERS` برای ایمنی **دو بار کلیک** می‌خواهند (ظرف ۶ ثانیه).
-- کلیدهای میانبر روی نمودار: `1` اعمال TP+SL، `2` فقط SL، `3` فقط TP، `4` ریسک‌فری فوری، `5` روشن/خاموش کردن تریلینگ، `6` روشن/خاموش کردن گارد اخبار، `7` باز کردن قفل (رفع kill-switch/lockout)، `0` توقف/ادامه.
+با دکمهٔ `SWITCHES 12` یا کلید `8` باز می‌شود. دوازده کلید، هر کدام با وضعیت **واقعی** خودش:
+
+```
+GOLD BASKET GUARD          XAUUSD | pip = 0.100 (10 pt) | switches
+[1 MIRROR     ON ] [2 AUTO-APPLY  ON ]
+[3 RISK-FREE  ON ] [4 WARN        ON ]
+[5 KILL-SW   OFF ] [6 BREAKER     ON ]
+[7 DAILY    OFF* ] [8 MONEY EXIT OFF*]
+[9 SIZING   OFF* ] [- ADAPTIVE   ON  ]
+[0 ALERTS     ON ] [= DRY-RUN   OFF  ]
+[BACK]  [RESET UI]
+```
+
+- قانون: **قابلیت اجرا می‌شود اگر `Inputs` اجازه بدهند و کلید هم روشن باشد.** خاموش کردن از پنل
+  همیشه ممکن است؛ روشن کردن فقط وقتی که حالت/آستانهٔ آن در `Inputs` تعریف شده باشد. اگر نباشد،
+  `OFF*` نشان داده می‌شود و کلیک فقط توضیح می‌نویسد (چرا خاموش است).
+- کلیدهای همین صفحه: `1-9`، `0`، `-`، `=` سوزنی‌اند (به ترتیب بالا)؛ `]` بازگشت، `[` بازگشت به
+  `Inputs` (پاک کردن ذخیرهٔ پنل).
+- `PAUSE`، `TRAIL`، `NEWS` و همهٔ اعداد تایپی هم در همین حالت می‌مانند: همه‌چیز در
+  `GlobalVariables` با پیشوند `GBG_<login>_<symbol>_` ذخیره می‌شود (خاموش: `InpPersistPanel=false`)
+  و بعد از بستن MT5 یا جابه‌جایی چارت برمی‌گردد. `RESET UI` آن را پاک می‌کند.
+- `MINIMISE` (کلید `9`) پنل را سه‌خطی می‌کند: فقط گروه، درصد ریسک، آخرین اقدام + دکمهٔ بازگشت.
+- جدول کامل هر کلید، کاری که می‌کند و پیش‌شرطش در
+  [`docs/GoldBasketGuard-parameters.md`](docs/GoldBasketGuard-parameters.md) است.
+
+### ۴-ب) دکمه‌ها، کادرها و کلیدهای میانبر
+
+- کادرهای ویرایش‌پذیر: `SL pips`، `TP pips`، `BE arm`، `BE lock`، `Trail dist`،
+  `SL money`، `TP money`، `part %`. با `Enter` ذخیره می‌شود و اگر `AUTO-APPLY` روشن باشد همان
+  لحظه اعمال هم می‌شود.
+- کادرهای **پولی** واحدشان **ارز حساب** است (روی حساب سنتی: سنت) و با حجم زندهٔ گروه به پیپ
+  تبدیل می‌شوند؛ یک‌بارمصرف‌اند (بعد از تبدیل صفر می‌شوند تا با تایپ بعدی نجنگند). مثال: گروه
+  ۰٫۴۰ لات روی طلا = ۱۰ دلار به ازای هر پیپ → تایپ `150` در `SL money` یعنی حد ضرر ۱۵ پیپ.
+- `CLOSE ALL`، `CLOSE LOSERS`، `CLOSE WINNERS` و `CLOSE {part}%` برای ایمنی **دو بار کلیک**
+  می‌خواهند (ظرف ۶ ثانیه) و هر دکمه تایمر تأیید **مستقل** دارد.
+- `CLOSE {part}%` (پیش‌فرض ۵۰٪) از **هر** تیکت به همان نسبت حجم کم می‌کند، پس حد ضرر گروهی
+  سرِ جای خودش می‌ماند؛ درصد را می‌توانید در کادر `part %` تایپ کنید.
+- کلیدهای میانبر: `1` اعمال TP+SL، `2` فقط SL، `3` فقط TP، `4` ریسک‌فری فوری، `5` تریلینگ،
+  `6` گارد اخبار، `7` رفع قفل، `0` توقف/ادامه، `8` صفحهٔ کلیدها، `9` پنل کوچک. هر کلیک یک
+  چرخهٔ مدیریت را **بلافاصله** اجرا می‌کند، بدون انتظار برای تیک بعدی.
 
 ---
 
@@ -194,7 +254,7 @@ live | dry-run off | calendar ok
 - واکنش (`InpNewsAction`):
   | مقدار | کار |
   |---|---|
-  | `NEWS_WARN` | فقط هشدار و لاگ — **پیش‌فرض v1.13** |
+  | `NEWS_WARN` | فقط هشدار و لاگ — **پیش‌فرض از v1.13** |
   | `NEWS_RISK_FREE` | همه را ریسک‌فری کن (بستن نمی‌کند) |
   | `NEWS_CLOSE_LOSING` | فقط زیان‌ده‌های گروه را ببند |
   | `NEWS_CLOSE_GROUP` | **کل گروه را ببند** (اگر خودتان فعالش کنید) |
@@ -247,7 +307,7 @@ live | dry-run off | calendar ok
 | اخبار را نمی‌بیند / `calendar err` | تقویم MT5 هم‌اکنون همگام نشده یا اینترنت/سرور تقویم در دسترس نیست؛ از `InpNewsManualWindows` استفاده کنید. در Strategy Tester تقویم کار نمی‌کند |
 | عدد پول روی حساب سنتی عجیب است | خط اول پنل `(cent)` را چک کنید؛ در صورت لزوم `InpMoneyBasis` را روی `MONEY_ACCOUNT_CCY` بگذارید یا `InpCentDivisor` را اصلاح کنید |
 | اکسپرت قفل شده و کار نمی‌کند | `UNLOCK` (یا کلید `7`) — پس از breaker (۶۰٪) یا حد ضرر روزانه طبیعی است |
-| چیزی را نبست ولی باید می‌بست | پیش‌فرض v1.13 فقط در **۶۰٪ ضرر شناور کل حساب** می‌بندد؛ kill-switch، مارجین‌لول و بستن خبری خاموش‌اند. اگر همان رفتار سخت می‌خواهید `InpEnableKillSwitch=true` یا `InpNewsAction=NEWS_CLOSE_GROUP` را روشن کنید |
+| چیزی را نبست ولی باید می‌بست | پیش‌فرض فقط در **۶۰٪ ضرر شناور کل حساب** می‌بندد؛ kill-switch، مارجین‌لول و بستن خبری خاموش‌اند. سریع‌ترین راه روشن کردنشان کلید `5` (KILL-SW) یا `6` (BREAKER) در صفحهٔ کلیدهای پنل است؛ راه دیگر `InpEnableKillSwitch=true` یا `InpNewsAction=NEWS_CLOSE_GROUP` |
 | فقط هشدار می‌دهد و نگرانم | طبیعی است: `InpRiskWarnPct=40` از ۴۰٪ به بعد Alarm می‌زند و خط پنل `float -NN% bal` را نشان می‌دهد؛ بستن تا ۶۰٪ انجام نمی‌شود |
 
 ---
@@ -256,17 +316,17 @@ live | dry-run off | calendar ok
 
 ```bash
 python3 tools/mql5_lint.py MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   # بررسی ساختار فایل
-python3 tools/gold_pip_calc.py --test                                          # 60 بررسی منطقی
+python3 tools/gold_pip_calc.py --test                                          # ۱۰۴ بررسی منطقی
 python3 tools/make_feature_sheet.py                                            # ساخت تصویر قابلیت‌ها
 python3 tools/make_flow_sheet.py                                               # ساخت تصویر عملکرد
 bash tools/setup_render_env.sh                                                 # (یک‌بار) نصب Pillow + فونت Vazirmatn
-python3 tools/make_release.py --check-only                                     # ۱۴ بررسی قبل از انتشار
+python3 tools/make_release.py --check-only                                     # ۱۹ بررسی قبل از انتشار
 python3 tools/make_release.py                                                  # ساخت release/GoldBasketGuard + zip
 ```
 
-پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۱۴ بررسی پاس باشد**
+پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۱۹ بررسی پاس باشد**
 (لینت، تست منطق، تک‌فایل بودن، ASCII بودن، توازن آکولاد، یکتا بودن ورودی‌ها و
-**«قرارداد صفرتنظیم»**: ۳۰ ورودی که باید دقیقاً همان پیش‌فرض‌های آمادهٔ طلا باشند —
+**«قرارداد صفرتنظیم»**: ۴۱ ورودی که باید دقیقاً همان پیش‌فرض‌های آمادهٔ طلا باشند —
 اگر روزی کسی یک پیش‌فرض را عوض کند و اکسپرت دوباره به فایل `.set` نیاز پیدا کند،
 دروازهٔ ریلیز همان لحظه می‌شکند). در `manifest.txt` هم checksum هر فایل و هم لیست
 بررسی‌های پاس‌شده ثبت می‌شود.
@@ -278,12 +338,12 @@ python3 tools/make_release.py                                                  #
 ```
 MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   اکسپرت (تک‌فایل، بدون وابستگی)
 release/GoldBasketGuard/                           نسخهٔ نهایی + manifest + راهنمای نصب
-release/GoldBasketGuard-v1.13.zip                  همان پوشه، آمادهٔ دانلود
+release/GoldBasketGuard-v1.14.zip                  همان پوشه، آمادهٔ دانلود
 docs/GoldBasketGuard-parameters.md                 توضیح تک‌تک ورودی‌ها (فارسی)
 docs/GoldBasketGuard-features-fa.png               نقشهٔ گرافیکی قابلیت‌ها (فارسی)
 docs/GoldBasketGuard-flow-fa.png                   نقشهٔ گرافیکی عملکرد مدیریت سرمایه
 tools/mql5_lint.py                                 لینت سبک MQL5
-tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۶۰ بررسی)
+tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۱۰۴ بررسی)
 tools/setup_render_env.sh                          نصب محیط رندر (venv + Pillow + فونت فارسی)
 tools/make_feature_sheet.py                        مولد تصویر قابلیت‌ها (Pillow + Vazirmatn)
 tools/make_flow_sheet.py                           مولد تصویر عملکرد + شبیه‌سازی قوانین تریلینگ
@@ -302,9 +362,11 @@ The release-ready copy of the EA, the Persian parameter reference and both diagr
 - one distance entered once → **SL/TP applied to every ticket** of the group (`APPLY_SAME_LEVEL` = identical price level for all tickets, `APPLY_PER_TICKET` = identical distance from each entry);
 - **mirroring**: change the SL or TP of *one* ticket by hand and the EA copies that level to the whole group (including removal);
 - **automatic risk-free**: after N pips of profit (default 200 pips = $20 on gold) all stop-losses move to entry + lock, then optional step-trailing locks profit;
-- **red-folder news guard**: the built-in MT5 economic calendar (no WebRequest, no external service) — before a HIGH-impact USD event the group is taken to risk-free and then closed (group or whole account), automation paused until the event passes; manual windows can be typed in for brokers without calendar access or for the Strategy Tester;
-- professional money management: SL distance derived from the % of balance you allow per basket, TP as an R multiple, daily loss limit and daily profit target, drawdown-from-peak guard, and a **50% of account at risk → close everything + lock the EA** breaker;
+- **red-folder news guard**: the built-in MT5 economic calendar (no WebRequest, no external service) — around a HIGH-impact USD event it warns by default (`NEWS_WARN`); taking the group to risk-free, closing the group or closing the whole account are optional settings, and manual windows work on brokers without calendar access or in the Strategy Tester;
+- professional money management: SL distance derived from the % of balance you allow per basket, TP as an R multiple, daily loss limit and daily profit target, drawdown-from-peak guard, and a **60% of account at risk → close everything + lock the EA** breaker;
 - **cent or dollar account detected automatically** (account currency `USD`/`EUR`/… vs `USC`/`Euro Cent`/…), all money inputs converted, so one file works on every broker;
 - optional basket money take/stop, partial volume reduction, a 40% risk warning that closes nothing,
   and one automatic close-all: the account breaker at 60% of balance at risk, chart panel with editable fields, buttons and hotkeys;
+- **12 panel switches** (v1.14): mirror, auto-apply, risk-free, warning, kill switch, breaker, daily guard, money exits, risk sizing, adaptive stops, alerts and dry run are toggled on the chart itself; a feature turns off from the panel always, and turns on whenever its Inputs already carry the mode/threshold. Switch state, pause, trail, news and every typed number are remembered per account + symbol, with `RESET UI` to go back to Inputs;
+- one-click partial close (`CLOSE 50%`, percent typed on the panel), `CLOSE WINNERS`, money SL/TP fields converted through the live group volume, and a compact 3-line panel mode;
 - broker-aware: stops/freeze levels, deviation, per-ticket cool-down, rate limiting, retries, dry-run mode, hedging vs netting detection.

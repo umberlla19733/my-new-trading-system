@@ -246,6 +246,163 @@ def risk_warn(balance: float, equity: float, warn_pct: float) -> tuple[float, bo
     return pct, pct >= warn_pct
 
 
+# --------------------------------------------------------------------------
+# Panel switches, money fields, arms and the broker minimum (mirrored v1.14)
+# --------------------------------------------------------------------------
+SWITCHES = ("MIRROR", "AUTO", "BE", "WARN", "KILL", "BREAKER",
+            "DAILY", "MONEY", "SIZING", "ADAPT", "ALERT", "DRY")
+
+
+def _d(inputs: dict) -> dict:
+    """Fill in the EA's own defaults so a test can name only what it cares about."""
+    base = {"mirror_sl": True, "mirror_tp": True, "auto_apply_on_start": True,
+            "be_mode": "BASKET_PIPS", "risk_warn_pct": 40.0, "enable_kill_switch": False,
+            "max_dd_pct": 60.0, "emergency_float_loss_pct": 60,
+            "daily_loss_pct": 0.0, "daily_profit_pct": 0.0,
+            "basket_money_exit": False, "basket_take_money": 500.0, "basket_stop_money": 500.0,
+            "risk_pct": 0.0, "adaptive_stops": True, "dry_run": False,
+            "close_step_pct": 50.0, "persist_panel": True}
+    base.update(inputs)
+    return base
+
+
+def bits_default(inputs: dict) -> int:
+    """SwInitDefaults(): every switch starts where the Inputs left its feature."""
+    i = _d(inputs)
+    want = {
+        "MIRROR":  i["mirror_sl"] or i["mirror_tp"],
+        "AUTO":    i["auto_apply_on_start"],
+        "BE":      i["be_mode"] != "OFF",
+        "WARN":    i["risk_warn_pct"] > 0,
+        "KILL":    i["enable_kill_switch"],
+        "BREAKER": i["emergency_float_loss_pct"] > 0,
+        "DAILY":   i["daily_loss_pct"] > 0 or i["daily_profit_pct"] > 0,
+        "MONEY":   i["basket_money_exit"],
+        "SIZING":  i["risk_pct"] > 0,
+        "ADAPT":   i["adaptive_stops"],
+        "ALERT":   True,
+        "DRY":     i["dry_run"],
+    }
+    bits = 0
+    for k, name in enumerate(SWITCHES):
+        if want[name]:
+            bits |= (1 << k)
+    return bits
+
+
+def gates(inputs: dict, bits: int) -> dict:
+    """The Use*() gate list: some switches may only silence, others are in charge."""
+    i = _d(inputs)
+    on = {name: bool((bits >> k) & 1) for k, name in enumerate(SWITCHES)}
+    return {
+        "mirror":  (i["mirror_sl"] or i["mirror_tp"]) and on["MIRROR"],
+        "auto":    on["AUTO"],
+        "be":      i["be_mode"] != "OFF" and on["BE"],
+        "warn":    i["risk_warn_pct"] > 0 and on["WARN"],
+        "kill":    i["max_dd_pct"] > 0 and on["KILL"],
+        "breaker": i["emergency_float_loss_pct"] > 0 and on["BREAKER"],
+        "daily":   on["DAILY"] and (i["daily_loss_pct"] > 0 or i["daily_profit_pct"] > 0),
+        "money":   on["MONEY"] and (i["basket_take_money"] > 0 or i["basket_stop_money"] > 0),
+        "sizing":  on["SIZING"] and i["risk_pct"] > 0,
+        "adapt":   on["ADAPT"],
+        "alerts":  on["ALERT"],
+        "dry":     i["dry_run"] or on["DRY"],
+    }
+
+
+def switch_bits_set(bits: int, name: str, on: bool) -> int:
+    k = SWITCHES.index(name)
+    return bits | (1 << k) if on else bits & ~(1 << k)
+
+
+def can_turn_on(inputs: dict, name: str) -> bool:
+    """SwCanTurnOn(): a switch may always silence; turning a feature ON needs its mode or threshold."""
+    i = _d(inputs)
+    return {
+        "MIRROR":  i["mirror_sl"] or i["mirror_tp"],
+        "BE":      i["be_mode"] != "OFF",
+        "WARN":    i["risk_warn_pct"] > 0,
+        "KILL":    i["max_dd_pct"] > 0,
+        "BREAKER": i["emergency_float_loss_pct"] > 0,
+        "DAILY":   i["daily_loss_pct"] > 0 or i["daily_profit_pct"] > 0,
+        "MONEY":   i["basket_take_money"] > 0 or i["basket_stop_money"] > 0,
+        "SIZING":  i["risk_pct"] > 0,
+    }.get(name, True)
+
+
+def money_to_pips(money: float, mpp: float) -> float:
+    """SL money typed on the panel -> pips, with the live group volume."""
+    if money <= 0 or mpp <= 0:
+        return 0.0
+    return money / mpp
+
+
+def pips_to_money(pips: float, mpp: float) -> float:
+    if pips <= 0 or mpp <= 0:
+        return 0.0
+    return pips * mpp
+
+
+def read_money_field(fields: dict, key: str, mpp: float) -> tuple[float, dict]:
+    """One-shot: the box is converted and then cleared, so it never fights a typed pip value."""
+    out = dict(fields)
+    pips = money_to_pips(float(fields.get(key, 0.0)), mpp)
+    if pips > 0:
+        out[key] = 0.0
+    return pips, out
+
+
+def part_pct(typed: float, default: float = 50.0) -> float:
+    p = default if typed <= 0 else typed
+    return min(95.0, max(5.0, p))
+
+
+def arm_confirm(arms: dict, key: str, now: int, window: int = 6) -> tuple[bool, dict]:
+    """Two clicks on the SAME button within the window; other buttons keep their own state."""
+    out = dict(arms)
+    prev = out.get(key, 0)
+    if not prev or now - prev >= window:
+        out[key] = now
+        return False, out
+    out[key] = 0
+    return True, out
+
+
+def clamp_level(raw: float, bid: float, ask: float, min_gap: float,
+                buy: bool, is_sl: bool) -> tuple[float, str]:
+    """FinalizeLevel(): reject only a level on the wrong side, clamp the broker minimum away."""
+    if raw <= 0:
+        return 0.0, "none"
+    if buy and is_sl:
+        if raw >= bid:
+            return 0.0, "rejected"
+        return (bid - min_gap, "clamped") if raw > bid - min_gap else (raw, "ok")
+    if buy and not is_sl:
+        if raw <= bid:
+            return 0.0, "rejected"
+        return (ask + min_gap, "clamped") if raw < ask + min_gap else (raw, "ok")
+    if not buy and is_sl:
+        if raw <= ask:
+            return 0.0, "rejected"
+        return (ask + min_gap, "clamped") if raw < ask + min_gap else (raw, "ok")
+    if raw >= ask:
+        return 0.0, "rejected"
+    return (bid - min_gap, "clamped") if raw > bid - min_gap else (raw, "ok")
+
+
+def ui_pack(bits: int, values: dict) -> dict:
+    """What the panel writes into the GlobalVariable anchors."""
+    out = {"SW": float(bits)}
+    out.update({k: float(v) for k, v in values.items()})
+    return out
+
+
+def ui_unpack(saved: dict) -> tuple[int, dict]:
+    bits = int(saved.get("SW", 0))
+    values = {k: v for k, v in saved.items() if k != "SW"}
+    return bits, values
+
+
 def in_manual_window(minutes_now: int, dow_now: int, windows: str) -> bool:
     """'HH:MM-HH:MM' (all days) or 'DOW-HH:MM-HH:MM' (0=Sunday), server time."""
     for raw in (windows or "").split(";"):
@@ -526,12 +683,90 @@ def run_tests() -> int:
           st4.scan(b4.tickets, now_ms=400) == [] and st4.scan(b4.tickets, now_ms=500) == [])
     check("echo window closes on its own", all(not st4.rec[t.ticket]["pending"] for t in b4.tickets))
 
+    # 11) v1.14 panel switches: input AND switch, persistence, money fields, arms
+    g0 = gates({}, bits_default({}))
+    check("defaults keep the v1.13 policy (kill off, breaker on, warn on)",
+          g0["kill"] is False and g0["breaker"] is True and g0["warn"] is True
+          and g0["money"] is False and g0["sizing"] is False and g0["daily"] is False
+          and g0["auto"] is True and g0["be"] is True and g0["adapt"] is True
+          and g0["alerts"] is True and g0["dry"] is False)
+    check("switch state is exactly the input state at start",
+          bits_default({}) == bits_default({"enable_kill_switch": False}))
+    b_kill = switch_bits_set(bits_default({}), "KILL", True)
+    check("panel switch turns the optional kill switch on without touching Inputs",
+          gates({}, b_kill)["kill"] is True)
+    b_q = switch_bits_set(bits_default({}), "BREAKER", False)
+    g_q = gates({}, b_q)
+    hit = emergency_hit(10000.0, 3000.0, 500.0, 1000.0, 60.0, 0.0, 0.0)
+    check("switch off silences the close-all even at 70% risk",
+          hit != "" and not g_q["breaker"])
+    check("and the same account still closes when the switch is on",
+          gates({}, bits_default({}))["breaker"] is True)
+    check("a switch cannot invent a threshold (sizing needs InpRiskPctPerBasket)",
+          gates({"risk_pct": 0.0}, switch_bits_set(bits_default({}), "SIZING", True))["sizing"] is False
+          and can_turn_on({"risk_pct": 0.0}, "SIZING") is False)
+    check("a switch cannot invent a threshold (daily needs a limit)",
+          can_turn_on({}, "DAILY") is False and can_turn_on({"daily_loss_pct": 5.0}, "DAILY") is True)
+    check("silencing always works, even for a feature the Inputs configured",
+          gates({}, switch_bits_set(bits_default({}), "WARN", False))["warn"] is False)
+    b_dry = switch_bits_set(bits_default({}), "DRY", True)
+    b_noalert = switch_bits_set(bits_default({}), "ALERT", False)
+    events = ["breaker fired", "risk-free reached"]
+    check("DRY-RUN from the panel sends nothing",
+          gates({}, b_dry)["dry"] is True and gates({"dry_run": True}, bits_default({}))["dry"] is True)
+    check("ALERTS off hushes every pop-up but keeps the decisions",
+          (lambda g: (len(events) if g["alerts"] else 0) == 0)(gates({}, b_noalert))
+          and gates({}, b_noalert)["be"] is True)
+    mpp = money_per_pip(0.40, 0.10, 0.01, 1.0)
+    check("0.40 lot on gold = $4 per pip", abs(mpp - 4.0) < 1e-9)
+    check("SL money 200 -> 50 pips", abs(money_to_pips(200.0, mpp) - 50.0) < 1e-9)
+    check("pips back to money", abs(pips_to_money(50.0, mpp) - 200.0) < 1e-9)
+    # the typed money and the per-pip value are both in ACCOUNT currency, so a cent
+    # account multiplies both sides and the pips come out identical - no factor needed
+    check("cent account: same pips when both sides speak cents",
+          abs(money_to_pips(200.0 * 100.0, mpp * 100.0) - money_to_pips(200.0, mpp)) < 1e-12)
+    check("no group volume -> no conversion (money stays put)",
+          money_to_pips(200.0, 0.0) == 0.0)
+    pips_left, fields_after = read_money_field({"SLM": 200.0, "TPM": 0.0}, "SLM", mpp)
+    check("money box is one-shot: converted then cleared",
+          abs(pips_left - 50.0) < 1e-9 and fields_after["SLM"] == 0.0
+          and read_money_field(fields_after, "SLM", mpp)[0] == 0.0)
+    check("CLOSE PART percent is clamped into a sane band",
+          part_pct(3.0) == 5.0 and part_pct(99.0) == 95.0 and part_pct(0.0) == 50.0
+          and part_pct(25.0, default=30.0) == 25.0)
+    arms: dict[str, int] = {}
+    fired, arms = arm_confirm(arms, "CLOSEALL", 100)
+    fired2, arms2 = arm_confirm(arms, "CLOSELOSE", 101)
+    check("first click only arms the button", fired is False and fired2 is False)
+    check("one button's arm does not steal another's (v1.13 bug)",
+          arms2.get("CLOSEALL") == 100 and arm_confirm(arms2, "CLOSEALL", 102)[0] is True)
+    check("the window expires on its own",
+          arm_confirm(arm_confirm({}, "CLOSEWIN", 200)[1], "CLOSEWIN", 210)[0] is False)
+    v, st = clamp_level(2649.90, 2650.0, 2650.01, 0.20, True, True)
+    check("a stop inside the broker minimum is clamped, not dropped",
+          st == "clamped" and abs(v - 2649.80) < 1e-9)
+    check("a level the broker accepts is left alone",
+          clamp_level(2645.0, 2650.0, 2650.01, 0.20, True, True) == (2645.0, "ok"))
+    check("clamping moves the stop away from the market, never closer", v < 2649.90)
+    check("a level on the wrong side is still rejected",
+          clamp_level(2655.0, 2650.0, 2650.01, 0.20, True, True) == (0.0, "rejected"))
+    check("TP clamp keeps the target at least the broker minimum away",
+          clamp_level(2650.05, 2650.0, 2650.01, 0.20, True, False)[1] == "clamped")
+    saved = ui_pack(bits_default({}), {"SLP": 300.0, "TPP": 500.0, "BEA": 200.0, "ABSL": 0.0})
+    back_bits, back_vals = ui_unpack(saved)
+    check("panel values survive a round trip through the anchors",
+          back_bits == bits_default({}) and back_vals["SLP"] == 300.0 and back_vals["ABSL"] == 0.0)
+    check("RESET UI returns to the inputs (no anchors left behind)",
+          gates({}, ui_unpack({"SW": float(bits_default({}))})[0])["kill"] is False
+          and bits_default({}) == bits_default({"persist_panel": False}))
+
     if fails:
         print("FAILED:")
         for f in fails:
             print("  - " + f)
         return 1
-    print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror + echo guard, risk-free, trail, limits, sizing, cent, 60%% breaker, 40%% warning, news)"
+    print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror + echo guard, risk-free, "
+          "trail, limits, sizing, cent, 60%% breaker, 40%% warning, news, panel switches + money fields)"
           % (passed[0], passed[0] + len(fails)))
     return 0
 

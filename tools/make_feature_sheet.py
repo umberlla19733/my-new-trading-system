@@ -112,55 +112,6 @@ def wrap_lines(d: ImageDraw.ImageDraw, text: str, font, max_w: int):
     return [fa(ln) for ln in lines if ln]
 
 
-# --------------------------------------------------------------------- content
-CARDS = [
-    dict(icon="group", color=GOLD, title="حد سود و حد ضرر گروهی",
-         bullets=["یک عدد وارد کن؛ روی همهٔ معاملات گروه اعمال می‌شود",
-                  "سه حالت: یک قیمت مشترک، فاصلهٔ یکسان، یا از بدترین ورود",
-                  "سطح مطلق دلخواه + اعمال خودکار روی پوزیشن جدید"]),
-    dict(icon="mirror", color=BLUE, title="میرورینگ: یکی تنظیم کن، همه تنظیم شوند",
-         bullets=["SL یا TP یک معامله را که دستی بکشی، روی همه کپی می‌شود",
-                  "واکنش داخل خودِ رویداد معامله؛ حلقهٔ ۱۰۰ میلی‌ثانیه‌ای",
-                  "پاک کردن حد ضرر از یک معامله، از همه حذف می‌شود"]),
-    dict(icon="lock", color=GREEN, title="ریسک‌فری (سربه‌سر) خودکار",
-         bullets=["بعد از ۲۰۰ پیپ سود گروه، حد ضررها روی ورود به‌علاوه قفل",
-                  "تریلینگ پله‌ای، ثابت یا خطی؛ حد ضرر هرگز عقب نمی‌رود",
-                  "اختیاری: بستن ۳۰٪ حجم سبد + هشدار موبایل"]),
-    dict(icon="news", color=RED, title="گارد اخبار قرمز (Red Folder)",
-         bullets=["تقویم اقتصادی داخلی MT5، بدون WebRequest و سرویس جانبی",
-                  "۲۰ دقیقه قبل تا ۱۵ دقیقه بعد از خبر؛ ۵ نوع واکنش",
-                  "پیش‌فرض فقط هشدار؛ بستن اختیاری، در تستر با پنجرهٔ دستی"]),
-    dict(icon="money", color=ORANGE, title="مدیریت سرمایهٔ حرفه‌ای",
-         bullets=["حد ضرر گروه از «٪ ریسک مجاز موجودی» خودش حساب می‌شود",
-                  "حد سود بر حسب مضرب R، حد ضرر و هدف سود روزانه",
-                  "هشدار در ۴۰٪؛ بستنِ همه فقط در ۶۰٪ حسابِ در خطر"]),
-    dict(icon="gear", color=CYAN, title="سازگاری با همهٔ بروکرها",
-         bullets=["پیپ، رقم اعشار، STOPS و FREEZE، hedging/netting زنده",
-                  "تشخیص حساب سنتی یا دلاری و تبدیل خودکار اعداد پولی",
-                  "رد شدن سطح توسط سرور ← زیادکردن حاشیه و تلاش دوباره"]),
-]
-
-PANEL_LINES = [
-    "GOLD BASKET GUARD            XAUUSD | pip = 0.100 (10 pt)",
-    "group: 4 tickets (4 buy / 0 sell) vol 0.80 | USD",
-    "avg BUY  2641.25  +32.4 pips",
-    "basket P/L: 142.30 (swap -1.20) | eq 5342.10",
-    "risk at SL: 150.00 (3.00% bal) = 300.0 pips | 10.00/pip",
-    "SL 300.0 p -> 2611.25 | TP 500.0 p -> 2691.25",
-    "risk-free: arm 200.0 p, lock 10.0 p, done 3 | trail ON",
-    "news: USD Non-Farm Payrolls @ 16:30 (in 4 min)",
-    "margin 412.5% | free 4980.10 | day P/L -120.40 | dd 1.8% | float -12.4% bal",
-    "act: mirror -> 4 ticket(s) SL 300.0 p / TP 500.0 p",
-    "[APPLY TP+SL][RISK-FREE NOW][TRAIL][NEWS ON][UNLOCK]",
-]
-
-PANEL_NOTES = [
-    "کلیدها: 1 اعمال، 2 فقط SL، 3 فقط TP، 4 ریسک‌فری، 5 تریلینگ، 6 گارد اخبار، 7 رفع قفل، 0 توقف",
-    "بستن همه و بستن زیان‌ده‌ها برای ایمنی به دو کلیک پشت سر هم نیاز دارد",
-    "فیلدهای SL، TP، BE arm، BE lock و Trail روی همین پنل تایپ می‌شوند",
-    "خط risk at SL می‌گوید اگر حد ضرر بخورد چند درصد موجودی می‌رود",
-]
-
 def persian_digits(v) -> str:
     digits = "".join(chr(0x06F0 + i) for i in range(10))   # ۰..۹
     return "".join(digits[int(c)] if c.isdigit() else c for c in str(v))
@@ -191,6 +142,46 @@ def ea_text(root: Path) -> str:
     return ea.read_text(encoding="utf-8") if ea.exists() else ""
 
 
+def ea_defaults(root: Path) -> dict:
+    """The EA's own input lines, so the sheet can never drift from the code."""
+    vals = {}
+    for name, val in re.findall(r"^\s*input\s+\w+\s+(\w+)\s*=\s*([^;]+);", ea_text(root), re.M):
+        vals[name] = val.strip()
+    return vals
+
+
+def fd(cfg: dict, name: str, dflt: float = 0.0) -> float:
+    raw = cfg.get(name, "")
+    try:
+        return float(raw)
+    except ValueError:
+        return dflt
+
+
+def fbool(cfg: dict, name: str) -> bool:
+    return cfg.get(name, "false").strip().lower() in {"true", "1"}
+
+
+def fenum(cfg: dict, name: str) -> str:
+    raw = cfg.get(name, "?")
+    for pre in ("NEWS_", "BE_", "TRAIL_", "MONEY_", "APPLY_"):
+        if raw.startswith(pre):
+            return raw[len(pre):]
+    return raw
+
+
+def pd(x) -> str:
+    """Persian digits; text that is not a number passes through untouched."""
+    if isinstance(x, float) and x == int(x):
+        x = int(x)
+    return persian_digits(x)
+
+
+def sw_count(root: Path) -> int:
+    m = re.search(r"enum ENUM_SWITCH.*\n  \{(.*?)\n  \};", ea_text(root), re.S)
+    return len(re.findall(r"SW_\w+\s*=", m.group(1))) if m else 0
+
+
 def ea_version(root: Path) -> str:
     m = re.search(r'#property\s+version\s+"([^"]+)"', ea_text(root))
     return m.group(1) if m else "?"
@@ -200,7 +191,7 @@ def collect_stats(root: Path):
     """Every number on the sheet is measured from the repo, never typed by hand."""
     src = ea_text(root).splitlines()
     lines = len(src)
-    inputs = sum(1 for l in src if l.startswith("input ") and " input group" not in l)
+    inputs = sum(1 for l in src if re.match(r"\s*input\s+(?!group\b)", l))
     groups = sum(1 for l in src if re.match(r"\s*input\s+group\b", l))
     checks = run_tool(root, ["tools/gold_pip_calc.py", "--test"], None)
     lint = run_tool(root, ["tools/mql5_lint.py",
@@ -212,12 +203,114 @@ def collect_stats(root: Path):
             (persian_digits(lint), "خطای لینت")]
 
 
-STATS = []
+# --------------------------------------------------------------------- content
+# CARDS / PANEL_LINES / PANEL_NOTES / STEPS are built from the EA source in
+# build(); the literals below are only the fallback if the file cannot be read.
 
-STEPS = [("۱", "نصب", "mq5 را در پوشهٔ Experts بگذار، F7"),
-         ("۲", "اتصال", "بدون Load کردن هیچ فایلی؛ پیپ و نوع حساب خودش تشخیص داده می‌شود"),
-         ("۳", "اعمال گروهی", "دکمهٔ APPLY TP+SL یا کلید 1"),
-         ("۴", "خودکار", "ریسک‌فری، تریلینگ، گارد اخبار، breaker")]
+def build_cards(cfg: dict, nsw: int) -> list:
+    be = pd(fd(cfg, "InpBeTriggerPips", 200))
+    part = pd(fd(cfg, "InpBeClosePartialPct", 30))
+    warn = pd(fd(cfg, "InpRiskWarnPct", 40))
+    brk = pd(fd(cfg, "InpEmergencyFloatLossPct", 60))
+    before, after = pd(fd(cfg, "InpNewsBeforeMin", 20)), pd(fd(cfg, "InpNewsAfterMin", 15))
+    timer = pd(fd(cfg, "InpTimerMs", 100))
+    sl, tp = pd(fd(cfg, "InpSLPips", 300)), pd(fd(cfg, "InpTPPips", 500))
+    step = pd(fd(cfg, "InpCloseStepPct", 50))
+    return [
+        dict(icon="group", color=GOLD, title="حد سود و حد ضرر گروهی",
+             bullets=["یک عدد وارد کن؛ روی همهٔ معاملات گروه اعمال می‌شود",
+                      f"پیش‌فرض طلا: حد ضرر {sl} و حد سود {tp} پیپ از میانگین ورود",
+                      "سه حالت: یک قیمت مشترک، فاصلهٔ یکسان، یا از بدترین ورود",
+                      "سطح مطلق دلخواه + اعمال خودکار روی پوزیشن جدید"]),
+        dict(icon="mirror", color=BLUE, title="میرورینگ: یکی تنظیم کن، همه تنظیم شوند",
+             bullets=["SL یا TP یک معامله را که دستی بکشی، روی همه کپی می‌شود",
+                      "واکنش داخل خودِ رویداد معامله؛ حلقهٔ " + timer + " میلی‌ثانیه‌ای",
+                      "پاک کردن حد ضرر از یک معامله، از همه حذف می‌شود",
+                      "اگر نگران دست‌کاری حد ضررهای دیگرانی، کلید MIRROR را خاموش کن"]),
+        dict(icon="lock", color=GREEN, title="ریسک‌فری (سربه‌سر) خودکار",
+             bullets=[f"بعد از {be} پیپ سود گروه، حد ضررها روی ورود به‌علاوه قفل",
+                      "تریلینگ پله‌ای، ثابت یا خطی؛ حد ضرر هرگز عقب نمی‌رود",
+                      f"اختیاری: بستن {part}٪ از حجم سبد + هشدار موبایل"]),
+        dict(icon="switch", color=CYAN, title=f"کلیدهای روشن/خاموش روی پنل ({nsw} کلید)",
+             bullets=["میرورینگ، اعمال خودکار، ریسک‌فری، تریلینگ، گارد اخبار، breaker، حد روزانه، پولی، سایزینگ، آلارم، Dry-Run",
+                      "خاموش کردن همیشه از پنل می‌شود؛ روشن کردن هم وقتی که آستانهٔ لازم در Inputs باشد",
+                      "انتخاب‌ها برای همین حساب و نماد ذخیره می‌شوند؛ دکمهٔ RESET UI برمی‌گرداند به Inputs",
+                      f"کلید {pd(8)} صفحهٔ کلیدها، کلید {pd(9)} پنل کوچک"]),
+        dict(icon="news", color=RED, title="گارد اخبار قرمز (Red Folder)",
+             bullets=["تقویم اقتصادی داخلی MT5، بدون WebRequest و سرویس جانبی",
+                      f"{before} دقیقه قبل تا {after} دقیقه بعد از خبر؛ واکنش پیش‌فرض: {fenum(cfg, 'InpNewsAction')} (فقط هشدار)",
+                      "بستن در خبر اختیاری است؛ در تستر با پنجرهٔ دستی کار می‌کند"]),
+        dict(icon="money", color=ORANGE, title="مدیریت سرمایهٔ حرفه‌ای",
+             bullets=["حد ضرر گروه از «٪ ریسک مجاز موجودی» خودش حساب می‌شود",
+                      "حد سود بر حسب مضرب R، حد ضرر و هدف سود روزانه",
+                      f"ورودی پولی روی پنل: {pd('SL money')} و TP money با حجم زندهٔ گروه به پیپ تبدیل می‌شوند",
+                      f"هشدار در {warn}٪؛ بستنِ همه فقط در {brk}٪ حسابِ در خطر"]),
+        dict(icon="gear", color=CYAN, title="سازگاری با همهٔ بروکرها",
+             bullets=["پیپ، رقم اعشار، STOPS و FREEZE، hedging/netting زنده",
+                      "تشخیص حساب سنتی یا دلاری و تبدیل خودکار اعداد پولی",
+                      "پاسخ نامعتبرِ سطح ← زیادکردن حاشیه و تلاش دوباره",
+                      f"بستن جزئی با درصد دلخواه (دکمهٔ CLOSE {step}٪) + دو بار کلیک برای تأیید"]),
+    ]
+
+
+def build_panel(cfg: dict, nsw: int) -> list:
+    """A mock of the real panel. Mono digits on purpose: this block imitates the
+    chart objects, and Vazirmatn shaping would turn it into soup."""
+    def num(key: str, dflt: float, dec: int = 0) -> str:
+        return f"{fd(cfg, key, dflt):.{dec}f}"
+    sl, tp = num("InpSLPips", 300, 1), num("InpTPPips", 500, 1)
+    be, lock = num("InpBeTriggerPips", 200, 1), num("InpBeLockPips", 10, 1)
+    warn, brk = num("InpRiskWarnPct", 40), num("InpEmergencyFloatLossPct", 60)
+    step = num("InpCloseStepPct", 50)
+    timer = num("InpTimerMs", 100)
+    return [
+        "GOLD BASKET GUARD            XAUUSD | pip = 0.100 (10 pt)",
+        "group: 4 tickets (4 buy / 0 sell) vol 0.80 | USD",
+        "avg BUY  2641.25  +32.4 pips",
+        "basket P/L: 142.30 (swap -1.20) | eq 5342.10",
+        "risk at SL: 150.00 (3.00% bal) = 300.0 pips | 10.00/pip",
+        f"SL {sl} p -> 2611.25 | TP {tp} p -> 2691.25",
+        f"risk-free: ON arm {be} p, lock {lock} p, done 3 | trail ON",
+        "news: USD Non-Farm Payrolls @ 16:30 (in 4 min)",
+        "margin 412.5% | free 4980.10 | day P/L -120.40 | float -12.4% bal",
+        f"mirror on | auto on | breaker {brk}% | warn {warn}% | dry off",
+        f"act: mirror -> 4 ticket(s) | loop {timer} ms | stops 0 pt",
+        "[APPLY TP+SL][APPLY SL][APPLY TP][CLEAR SL/TP]",
+        "[RISK-FREE NOW][TRAIL ON][NEWS ON][PAUSE][UNLOCK]",
+        f"[CLOSE ALL][CLOSE LOSERS][CLOSE {step}%][CLOSE WINNERS][SWITCHES {nsw}]",
+        "-- SWITCHES (key 8) " + "-" * 24,
+        "[1 MIRROR    ON ][2 AUTO-APPLY ON ]",
+        "[3 RISK-FREE ON ][4 WARN      ON ]",
+        "[5 KILL     OFF*][6 BREAKER   ON ]",
+        "[7 DAILY    OFF*][8 MONEY     OFF*]",
+        "[9 SIZING   OFF*][- ADAPTIVE  ON ]",
+        "[0 ALERTS    ON ][= DRY-RUN  OFF ]",
+        "[BACK][RESET UI]",
+    ]
+
+
+def build_notes(cfg: dict, nsw: int) -> list:
+    return [
+        f"کلیدها: {pd(1)} اعمال، {pd(2)} فقط SL، {pd(3)} فقط TP، {pd(4)} ریسک‌فری، {pd(5)} تریلینگ، {pd(6)} اخبار، {pd(7)} رفع قفل، {pd(0)} توقف، {pd(8)} صفحهٔ کلیدها، {pd(9)} پنل کوچک",
+        f"در صفحهٔ کلیدها همان {nsw} کلید با {pd('1-9، 0، - و =')} خاموش/روشن می‌شوند؛ ستاره یعنی Inputs آن قابلیت را بسته است",
+        "چهار دکمهٔ بستن (همه، زیان‌ده‌ها، سودده‌ها، بخشی از حجم) به دو کلیک پشت سر هم نیاز دارند",
+        "فیلدهای پیپ + کادرهای پولی (SL money / TP money / درصد بستن بخشی) روی همین پنل تایپ می‌شوند",
+        "خط risk at SL می‌گوید اگر حد ضرر بخورد چند درصد موجودی می‌رود",
+        f"با {pd(1)} انتخاب پنل و اعداد تایپی ذخیره می‌شوند (InpPersistPanel) و با RESET UI پاک می‌شوند",
+    ]
+
+
+CARDS, PANEL_LINES, PANEL_NOTES, STEPS = [], [], [], []
+
+
+def build_steps(cfg: dict) -> list:
+    timer = pd(fd(cfg, "InpTimerMs", 100))
+    return [("۱", "نصب", "mq5 را در پوشهٔ Experts بگذار، F7"),
+            ("۲", "اتصال", "بدون Load کردن هیچ فایلی؛ پیپ و نوع حساب خودش تشخیص داده می‌شود"),
+            ("۳", "اعمال گروهی", f"دکمهٔ APPLY TP+SL یا کلید {pd(1)}؛ حلقهٔ {timer} میلی‌ثانیه"),
+            ("۴", "کلیدها", f"کلید {pd(8)} → خاموش/روشن کردن هر قابلیت، بدون بازکردن Inputs"),
+            ("۵", "خودکار", "ریسک‌فری، تریلینگ، گارد اخبار، breaker")]
+
 
 def badge_rows(version: str = ""):
     v = f"نسخه {version}" if version else "نسخه"
@@ -272,6 +365,12 @@ class Sheet:
             for dy in (-u, 0, u):
                 d.rounded_rectangle([cx - u * 1.5, cy + dy - u * 0.34, cx + u * 1.5, cy + dy + u * 0.34],
                                      radius=int(u * 0.16), fill=color)
+        elif kind == "switch":
+            tw, th = u * 1.55, u * 0.72
+            d.rounded_rectangle([cx - tw, cy - th, cx + tw, cy + th], radius=int(th), outline=color, width=2 * S)
+            d.ellipse([cx + tw * 0.35 - th * 0.62, cy - th * 0.62, cx + tw * 0.35 + th * 0.62, cy + th * 0.62],
+                      fill=color)
+            d.line([cx - tw * 0.75, cy, cx - tw * 0.1, cy], fill=color, width=2 * S)
         elif kind == "mirror":
             d.line([cx, cy - u * 1.4, cx, cy + u * 1.4], fill=color, width=2 * S)
             for sx in (-1, 1):
@@ -314,7 +413,13 @@ def measure_cards(sheet: Sheet, cards, cw, gap, lead):
 
 
 def build(out_path: Path, font_dir: str) -> None:
-    global STATS
+    global STATS, CARDS, PANEL_LINES, PANEL_NOTES, STEPS
+    cfg = ea_defaults(ROOT)
+    nsw = sw_count(ROOT)
+    CARDS = build_cards(cfg, nsw)
+    PANEL_LINES = build_panel(cfg, nsw)
+    PANEL_NOTES = build_notes(cfg, nsw)
+    STEPS = build_steps(cfg)
     STATS = collect_stats(ROOT)
     version = ea_version(ROOT)
     f = Fonts(font_dir)
