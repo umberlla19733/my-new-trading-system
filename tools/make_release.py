@@ -51,6 +51,7 @@ DEFAULTS_CONTRACT = [
     ("InpMirrorSL", "true", "a manual SL drag is mirrored to the whole group"),
     ("InpMirrorTP", "true", "a manual TP drag is mirrored to the whole group"),
     ("InpTimerMs", "100", "100 ms loop: sub-second reaction instead of 1 s"),
+    ("InpIdleRefreshMs", "1000", "a chart with no positions works at one hertz, not ten"),
     ("InpInstantMirror", "true", "trade events are answered inside the event itself"),
     ("InpMirrorGuardMs", "250", "own echo suppressed by value, never by a blind seconds window"),
     ("InpMinMsPerTicket", "0", "no cool-down between two modifications of a ticket"),
@@ -252,6 +253,25 @@ def verify(g: Gate, version: str) -> dict:
     arms = len(re.findall(r"datetime g_arm_\w+", text))
     g.check("every close button arms on its own", arms >= 4, f"{arms} arm timers")
     g.check("partial close from the panel", "ClosePartialGroup(PartPct()" in text, "CLOSE PART uses the percent field")
+
+    # the lightness contract: a cycle may not cost more than the budget below,
+    # measured by tools/mql5_cost.py (the numbers there are ratcheted, not aspirational)
+    for args, what in ((["--tickets", "5", "--max", "240"], "a cycle with a group on it"),
+                       (["--tickets", "0", "--max", "150"], "an idle cycle")):
+        ok, out = g.run(["tools/mql5_cost.py"] + args)
+        g.check(f"cycle cost budget ({what})", ok, (out or "").splitlines()[0] if out else "")
+
+    g.check("panel paints only what changed",
+            "if(!g_panel_force && sig == g_panel_sig)" in text and "g_obj_dirty" in text,
+            "a quiet chart must not touch a single chart object")
+    g.check("panel rows are cached in front of the chart", "g_row_txt[i] == txt" in text,
+            "RowSet() compares before it calls OLabel()")
+    g.check("an order clears the account snapshot", text.count("SnapReset();") >= 3,
+            f"{text.count('SnapReset();')} invalidations: guards never decide on stale equity")
+    g.check("terminal flags are read once", "return g_is_tester;" in text
+            and "g_is_tester = IsTester();" in text, "InTester() must not be an accessor per guard")
+    g.check("idle loop backs off", "EventSetMillisecondTimer(g_timer_ms)" in text
+            and "InpIdleRefreshMs" in text, "one hertz while the chart holds nothing")
 
     # no preset folder may come back without the gate knowing about it
     stray = sorted(p.name for p in (ROOT / "MQL5/Presets").glob("*.set")) if (ROOT / "MQL5/Presets").exists() else []

@@ -1,4 +1,4 @@
-# GoldBasketGuard v1.14 — release folder
+# GoldBasketGuard v1.15 — release folder
 
 این پوشه نسخهٔ نهایی و بررسی‌شدهٔ اکسپرت است. **هیچ فایل پیش‌تنظیمی لازم نیست**:
 همه‌چیز در خود فایل ساخته شده و مقداردهیِ پیش‌فرض برای طلا تنظیم شده است.
@@ -7,7 +7,7 @@
 
 | file | what it is |
 |---|---|
-| `GoldBasketGuard.mq5` | the EA — 3296 lines, 107 inputs, 10 input groups |
+| `GoldBasketGuard.mq5` | the EA — 3590 lines, 108 inputs, 10 input groups |
 | `GoldBasketGuard-parameters.md` | every parameter, Persian reference |
 | `GoldBasketGuard-features-fa.png` | one-image feature sheet (Persian) |
 | `GoldBasketGuard-flow-fa.png` | how the risk engine behaves, tick by tick |
@@ -31,7 +31,7 @@
 - نوع fill مجاز نماد، محدودیت نرخ ارسال دستور، و حضور/عدم حضور تقویم اقتصادی
 - ارز خبر از نام نماد (XAU/GOLD → USD)؛ اگر تقویم در دسترس نبود، پنجرهٔ دستی `InpNewsManualWindows`
 
-### سرعت واکنش (v1.14)
+### سرعت واکنش (v1.15)
 
 - حلقهٔ مدیریت هر `InpTimerMs=100` میلی‌ثانیه اجرا می‌شود (۱۰ چرخه در ثانیه)، نه هر ۱ ثانیه
 - `InpInstantMirror=true`: کشیدن SL/TP روی یک معامله **داخل همان رویداد معامله** به بقیهٔ گروه
@@ -41,7 +41,7 @@
 - `InpMaxModsPerSecond=25` و `InpMinMsPerTicket=0`: یک سبد کامل در یک چرخه صاف می‌شود
 - خط آخر پنل مدت واقعی هر چرخه را نشان می‌دهد: `cycle 1 ms (max 9 ms)`
 
-### سیاست بستن (پیش‌فرض از نسخهٔ 1.14)
+### سیاست بستن (پیش‌فرض از نسخهٔ 1.15)
 
 - **تنها بستن خودکار:** ضرر شناور **کل حساب** ≥ **۶۰٪ موجودی** → بستنِ همه + قفل اکسپرت
   (`InpEmergencyFloatLossPct=60`، قفل تا `InpEmergencyLockHours=24` ساعت، `UNLOCK` یا کلید `7` برای باز کردن)
@@ -65,19 +65,26 @@
 - no tab characters
 - no CRLF line endings
 - no TODO / FIXME / XXX left
-- version property — found 1.14, expected 1.14
-- braces balanced — 328 open / 328 close
-- parens balanced — 1889 open / 1889 close
+- version property — found 1.15, expected 1.15
+- braces balanced — 360 open / 360 close
+- parens balanced — 2032 open / 2032 close
 - input names unique
-- input count sane — 107 inputs
+- input count sane — 108 inputs
 - static lint clean —    clean: blocks balanced, no obvious syntax/API problems
-- logic mirror tests — 104/104 checks passed
-- zero-config contract (41 defaults) — attach with no changes = gold setup, all guards armed
+- logic mirror tests — 113/113 checks passed
+- zero-config contract (42 defaults) — attach with no changes = gold setup, all guards armed
 - panel switches wired to gates (12 switches) — every switch has an input default and is read by a Use*() gate
 - dry run goes through one gate — only DryOn(), the defaults and the panel text read InpDryRun
 - money entry on the panel — SL money and TP money boxes convert through GroupMoneyPerPip()
 - every close button arms on its own — 4 arm timers
 - partial close from the panel — CLOSE PART uses the percent field
+- cycle cost budget (a cycle with a group on it) — RunCycle() with 5 ticket(s): 201 terminal calls on the quiet path [39 object writes, 3 redraws, 7 position reads]
+- cycle cost budget (an idle cycle) — RunCycle() with 0 ticket(s): 126 terminal calls on the quiet path [39 object writes, 3 redraws, 2 position reads]
+- panel paints only what changed — a quiet chart must not touch a single chart object
+- panel rows are cached in front of the chart — RowSet() compares before it calls OLabel()
+- an order clears the account snapshot — 4 invalidations: guards never decide on stale equity
+- terminal flags are read once — InTester() must not be an accessor per guard
+- idle loop backs off — one hertz while the chart holds nothing
 - no preset files to load — removed on purpose
 
 Rebuild this folder any time with:

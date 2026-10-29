@@ -1,14 +1,14 @@
-GoldBasketGuard v1.14
+GoldBasketGuard v1.15
 built 2026-10-29 by tools/make_release.py
 source: MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5
-defaults contract: 41 inputs pinned (no preset files needed)
+defaults contract: 42 inputs pinned (no preset files needed)
 
 files (sha256  size  name):
-e0e248ee6bf698c9c2861c81b60a4a29324ba75c899075800bbfb5d323e65123    949330  GoldBasketGuard-features-fa.png
-6e96a76cdb4c2a54077e657131c0c63e898add589aad242a9311b15f03d66a62    714739  GoldBasketGuard-flow-fa.png
-d206c7651f3ee3e573eed77d65a394d549e11bd893676fe0f553cab9b1ab9a5d     31864  GoldBasketGuard-parameters.md
-6bf08d9a50f28ab1ea0d0a33c36b70a0fddecbf42589a17a8ff66ce8640a67d9    129912  GoldBasketGuard.mq5
-da8df466dbd17f915c252ab3eb224c7f382de5c2e4602cd0524b5f2734ffe791      6239  README.md
+71cc69439091b3f4052e4d8e86ba098981014c41b77bf4783ca7be839b135856    949219  GoldBasketGuard-features-fa.png
+40ebb976b4c335aff4db671059e45daf28744ea5eb5f6d987500d4f7ab8272b1    752610  GoldBasketGuard-flow-fa.png
+48eae17f78cf5ebb1abda8f9c69d2d7123032ce845186e2b8bbd39315edc961b     33264  GoldBasketGuard-parameters.md
+31dc8d121080da4c74ba569792d5b2399d918026f09577623716356c449a7794    140399  GoldBasketGuard.mq5
+5fa68e3b7ee30249bedfd942c454f2ad7289772071923601589f610dbf6f47c0      6983  README.md
 
 checks passed:
 - EA file present — MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5
@@ -16,17 +16,24 @@ checks passed:
 - no tab characters
 - no CRLF line endings
 - no TODO / FIXME / XXX left
-- version property — found 1.14, expected 1.14
-- braces balanced — 328 open / 328 close
-- parens balanced — 1889 open / 1889 close
+- version property — found 1.15, expected 1.15
+- braces balanced — 360 open / 360 close
+- parens balanced — 2032 open / 2032 close
 - input names unique
-- input count sane — 107 inputs
+- input count sane — 108 inputs
 - static lint clean —    clean: blocks balanced, no obvious syntax/API problems
-- logic mirror tests — 104/104 checks passed
-- zero-config contract (41 defaults) — attach with no changes = gold setup, all guards armed
+- logic mirror tests — 113/113 checks passed
+- zero-config contract (42 defaults) — attach with no changes = gold setup, all guards armed
 - panel switches wired to gates (12 switches) — every switch has an input default and is read by a Use*() gate
 - dry run goes through one gate — only DryOn(), the defaults and the panel text read InpDryRun
 - money entry on the panel — SL money and TP money boxes convert through GroupMoneyPerPip()
 - every close button arms on its own — 4 arm timers
 - partial close from the panel — CLOSE PART uses the percent field
+- cycle cost budget (a cycle with a group on it) — RunCycle() with 5 ticket(s): 201 terminal calls on the quiet path [39 object writes, 3 redraws, 7 position reads]
+- cycle cost budget (an idle cycle) — RunCycle() with 0 ticket(s): 126 terminal calls on the quiet path [39 object writes, 3 redraws, 2 position reads]
+- panel paints only what changed — a quiet chart must not touch a single chart object
+- panel rows are cached in front of the chart — RowSet() compares before it calls OLabel()
+- an order clears the account snapshot — 4 invalidations: guards never decide on stale equity
+- terminal flags are read once — InTester() must not be an accessor per guard
+- idle loop backs off — one hertz while the chart holds nothing
 - no preset files to load — removed on purpose
