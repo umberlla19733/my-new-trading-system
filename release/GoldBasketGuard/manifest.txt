@@ -1,17 +1,14 @@
-GoldBasketGuard v1.10
+GoldBasketGuard v1.11
 built 2026-10-29 by tools/make_release.py
 source: MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5
+defaults contract: 30 inputs pinned (no preset files needed)
 
 files (sha256  size  name):
-b130cfcd30b210162561269e40130637c8e064e913198eb9d861c0285d4a5fa0    712405  GoldBasketGuard-features-fa.png
-f868da7bb89892b8abe4fb6c7943361e17b99fe8275343cfc069add9fe308309    691026  GoldBasketGuard-flow-fa.png
-3144eeafb53ec4344c4aa352ce0f56035bf3874ee724ecbc1c5cd616af0c5404     23043  GoldBasketGuard-parameters.md
-06e04f75db7a9e0308d829649eac654c076bfca46768668a630cff9aaa6b9db7     98549  GoldBasketGuard.mq5
-c9253a04219be401f53ae4a8f90b47fc522ed167d09780834cb3a6ee92287a04      2354  README.md
-31c1900ca35951ea05d65798d567000462a6735b059d27761b79f3324716b7e2      2136  presets/GoldBasketGuard_DryRun_Safe.set
-91782e9c82322e276da36a966b273e255f2864a80eca870e018d391ff3afd802      2194  presets/GoldBasketGuard_Grid_Basket.set
-38824f2f0a8a29e4055e91a412d378ded56ca816ddb6f356d7e8c00f3a47af09      2136  presets/GoldBasketGuard_XAUUSD_2digits.set
-a6ad4b571158c5fb94583a2fb4171d02f7641246e1a40587af602e27f8362f60      2114  presets/GoldBasketGuard_XAUUSD_3digits.set
+84118203dbf37847bb2df513667a3a88c9778212bc5b8deb26eefe147822069c    716715  GoldBasketGuard-features-fa.png
+670f0ba886b9a4086e235704287a13683163192178b105800545dec653a2d5dd    681874  GoldBasketGuard-flow-fa.png
+7fbe176c9114082d2a28f2645764effbdbf004327764e1b76e87bdecd5014107     23764  GoldBasketGuard-parameters.md
+33fcf5edf02fa5eb5e12f97c60c4ee573c27079679829d3a5e8569830b74815d     98750  GoldBasketGuard.mq5
+1f5bd1197e83182346dcbcd630d1d31fba28f23d994e489e42f8082076e40275      3664  README.md
 
 checks passed:
 - EA file present — MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5
@@ -19,11 +16,12 @@ checks passed:
 - no tab characters
 - no CRLF line endings
 - no TODO / FIXME / XXX left
-- version property — found 1.10, expected 1.10
+- version property — found 1.11, expected 1.11
 - braces balanced — 242 open / 242 close
 - parens balanced — 1380 open / 1380 close
 - input names unique
 - input count sane — 101 inputs
 - static lint clean —    clean: blocks balanced, no obvious syntax/API problems
 - logic mirror tests — 60/60 checks passed
-- presets valid (4 files)
+- zero-config contract (30 defaults) — attach with no changes = gold setup, all guards armed
+- no preset files to load — removed on purpose

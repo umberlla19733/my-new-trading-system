@@ -3,7 +3,7 @@
 اکسپرت **GoldBasketGuard** برای متاتریدر ۵ — مدیریت **گروهی** حد سود و حد ضرر + **ریسک‌فری (سربه‌سر) خودکار**، طراحی‌شده برای **طلا (XAUUSD)**.
 
 فایل اصلی: [`MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5`](MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5)
-نسخهٔ نهایی (فایل اکسپرت + پیش‌تنظیم‌ها + مستندات، آمادهٔ دانلود): [`release/GoldBasketGuard/`](release/GoldBasketGuard/)
+نسخهٔ نهایی (فایل اکسپرت + مستندات + تصویرها، آمادهٔ دانلود): [`release/GoldBasketGuard/`](release/GoldBasketGuard/)
 
 ### نقشهٔ کامل قابلیت‌ها در یک تصویر
 
@@ -15,8 +15,8 @@
 
 (هر دو تصویر با اسکریپت ساخته می‌شوند — `tools/make_feature_sheet.py` و
 `tools/make_flow_sheet.py` — با فونت فارسی واقعی، بدون تصویرسازی هوش مصنوعی.
-تصویر دوم عددهایش را از پیش‌تنظیم می‌خواند:
-`python3 tools/make_flow_sheet.py --preset GoldBasketGuard_Grid_Basket` برای پروفایل تهاجمی‌تر.)
+عددها و نسخهٔ روی تصویرها از **خود فایل اکسپرت** خوانده می‌شوند، پس اگر روزی
+ورودی یا پیش‌فرضی عوض شود، با یک بار اجرای اسکریپت تصویرها هم به‌روز می‌شوند.)
 
 ---
 
@@ -69,29 +69,35 @@ python3 tools/gold_pip_calc.py --move 2650.00 2673.40 --digits 2
    - دکمهٔ `Algo Trading` در نوار بالا روشن باشد.
    - در `Tools → Options → Expert Advisors` تیک `Allow algorithmic trading` خورده باشد.
    - در پنجرهٔ تنظیمات اکسپرت، تب `Common` → `Allow algo trading` تیک بخورد.
-5. فایل آماده از `MQL5\Presets\` را با دکمهٔ `Presets → Load` در پنجرهٔ اکسپرت بارگذاری کنید (یا دستی مقدار بدهید).
+5. تمام. **هیچ فایل پیش‌تنظیمی لازم نیست** — پیش‌فرض‌های داخل فایل برای طلا تنظیم شده‌اند و بقیهٔ چیزها موقع اجرا تشخیص داده می‌شود. برای اولین اجرا اگر خواستید فقط نگاه کنید و کاری انجام نشود، در تب `Inputs` تیک `InpDryRun` را روشن کنید.
 
-### پیش‌نمایش‌های آماده
+### ۳-الف) چه چیزی خودش تشخیص داده می‌شود (چرا پیش‌تنظیم لازم نیست)
 
-| فایل | کاربرد |
-|---|---|
-| `GoldBasketGuard_DryRun_Safe.set` | **اول این را تست کنید.** هیچ دستوری به کارگزار فرستاده نمی‌شود، فقط لاگ می‌گیرد (`InpDryRun=true`) |
-| `GoldBasketGuard_XAUUSD_2digits.set` | تنظیم استاندارد طلا (۲ رقم اعشار): SL گروهی ۳۰۰ پیپ، TP گروهی ۵۰۰ پیپ، ریسک‌فری بعد از ۲۰۰ پیپ، تریلینگ پله‌ای، kill-switch روی ۱۲٪ |
-| `GoldBasketGuard_XAUUSD_3digits.set` | همان تنظیم برای کارگزارانی که طلا را ۳ رقمی قیمت می‌دهند |
-| `GoldBasketGuard_Grid_Basket.set` | برای سبدهای شبکه‌ای/میانگین‌گیری: TP/SL یکسان روی کل سبد، ریسک‌فری روی میانگین ورود، بستن ۳۰٪ حجم، هدف/حد پولی سبد، kill-switch |
+| مورد | چگونه | اگر کارگزار متفاوت بود |
+|---|---|---|
+| اندازهٔ پیپ طلا | `AutoPipSize()` از `SYMBOL_DIGITS` (۱/۲/۳ رقم → `0.10`) | فقط اگر خواستید دستی بگذارید: `InpPipSize` |
+| ارزش هر پیپ (پول) | `TICK_SIZE` و `TICK_VALUE` خودِ نماد | خودکار |
+| حساب **سنتی یا دلاری** | ارز حساب (`USC/EUC/GBC/RUC/JYC/CHC/BRC` یا هرچه `CENT` دارد) → ضریب `InpCentDivisor=100` روی همهٔ اعداد پولی؛ درصدها دست‌نخورده | خودکار |
+| `hedging` یا `netting` | `ACCOUNT_MARGIN_MODE`؛ در netting گروه با حجم خالص کار می‌کند | خودکار |
+| `STOPS_LEVEL` / `FREEZE_LEVEL` | هر سیکل از سرور خوانده می‌شود؛ اگر `INVALID_STOPS` آمد حاشیه زیاد و retry می‌شود (تا `InpAdaptiveStopsCapPoints`) | خودکار |
+| نوع fill مجاز | `SetTypeFillingBySymbol` | خودکار |
+| ارزِ خبر قرمز | از نام نماد (XAU/GOLD → `USD`) | اگر لیست خواستید: `InpNewsCurrencies="USD,EUR"` |
+| دسترسی به تقویم اقتصادی | نبودِ تقویم (مثلاً در Strategy Tester) خودکار به `InpNewsManualWindows` برمی‌گردد | پنجرهٔ دستی را تایپ کنید |
+
+چهار عدد از این‌ها به‌دست نمی‌آیند چون **سلیقهٔ معاملاتی** است نه دادهٔ بروکر — و هر چهار در پنل روی چارت تایپ می‌شوند: فاصلهٔ حد ضرر گروه (`300` پیپ)، حد سود (`500` پیپ)، آستانهٔ ریسک‌فری (`200` پیپ) و اینکه کدام معاملات «گروه» باشند (مجیک / کامنت / جهت). اکسپرت عمداً هیچ معامله‌ای باز نمی‌کند.
 
 ---
 
 ## ۳-ب) شروع سریع برای سناریوی شما (طلا، ۳ تا ۶ معاملهٔ باز)
 
-1. اکسپرت را روی نمودار **XAUUSD** بیندازید و پیش‌نمایش `GoldBasketGuard_XAUUSD_2digits.set` را Load کنید.
+1. اکسپرت را روی نمودار **XAUUSD** بیندازید. تب `Inputs` را دست نزنید؛ همین تنظیم استاندارد طلا است.
 2. در پنل، کادر `SL pips` را مثلاً `300` و `TP pips` را `500` بگذارید و `Enter` بزنید، سپس دکمهٔ **APPLY TP+SL** → حد ضرر روی `میانگین ورود − ۳۰ دلار` و حد سود روی `میانگین ورود + ۵۰ دلار` برای **همه** قرار می‌گیرد (همان قیمت برای همهٔ تیکت‌ها).
 3. از این به بعد کافی است روی **یکی** از معاملات حد سود یا حد ضرر را با ماوس جابه‌جا کنید؛ اکسپرت همان را به بقیه کپی می‌کند و آن مقدار را **یادش می‌ماند** (معاملهٔ جدید بعدی هم همان را می‌گیرد). اگر عدد را دوباره در پنل تایپ کنید، برمی‌گردد به حالت «فاصله بر حسب پیپ».
 4. `BE arm = 200` یعنی وقتی میانگین گروه ۲۰۰ پیپ (۲۰ دلار) در سود رفت، حد ضرر همه روی **ورود + ۱۰ پیپ** می‌نشیند → گروه ریسک‌فری.
 5. `TRAIL` روشن است: از ۲۵۰ پیپ سود به بعد، هر ۳۰ پیپ سود جدید ۳۰ پیپ دیگر قفل می‌شود.
 6. kill-switch روی ۱۲٪ equity: اگر ضرر شناور سبد از ۱۲٪ موجودی عبور کرد، کل گروه بسته و اکسپرت متوقف می‌شود.
 
-قبل از شمارهٔ ۲ می‌توانید یک بار `GoldBasketGuard_DryRun_Safe.set` را اجرا کنید و تب `Experts` را بخوانید تا دقیقاً ببینید چه سطحی می‌فرستد (بدون ارسال هیچ دستوری).
+قبل از شمارهٔ ۲ می‌توانید یک بار با `InpDryRun=true` اجرا کنید و تب `Experts` را بخوانید تا دقیقاً ببینید چه سطحی می‌فرستد (بدون ارسال هیچ دستوری).
 
 ---
 
@@ -236,15 +242,18 @@ live | dry-run off | calendar ok
 python3 tools/mql5_lint.py MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   # بررسی ساختار فایل
 python3 tools/gold_pip_calc.py --test                                          # 60 بررسی منطقی
 python3 tools/make_feature_sheet.py                                            # ساخت تصویر قابلیت‌ها
-python3 tools/make_flow_sheet.py --preset GoldBasketGuard_XAUUSD_2digits       # ساخت تصویر عملکرد
-python3 tools/make_release.py --check-only                                     # ۱۳ بررسی قبل از انتشار
+python3 tools/make_flow_sheet.py                                               # ساخت تصویر عملکرد
+bash tools/setup_render_env.sh                                                 # (یک‌بار) نصب Pillow + فونت Vazirmatn
+python3 tools/make_release.py --check-only                                     # ۱۴ بررسی قبل از انتشار
 python3 tools/make_release.py                                                  # ساخت release/GoldBasketGuard + zip
 ```
 
-پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۱۳ بررسی پاس باشد**
-(لینت، تست منطق، تک‌فایل بودن، یونی‌کد نبودن، توازن آکولاد، یکتا بودن ورودی‌ها،
-و معتبر بودن کلید/مقدار هر ۴ فایل `.set` نسبت به نوع اعلام‌شده). در `manifest.txt`
-هم checksum هر فایل و هم لیست بررسی‌های پاس‌شده ثبت می‌شود.
+پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۱۴ بررسی پاس باشد**
+(لینت، تست منطق، تک‌فایل بودن، ASCII بودن، توازن آکولاد، یکتا بودن ورودی‌ها و
+**«قرارداد صفرتنظیم»**: ۳۰ ورودی که باید دقیقاً همان پیش‌فرض‌های آمادهٔ طلا باشند —
+اگر روزی کسی یک پیش‌فرض را عوض کند و اکسپرت دوباره به فایل `.set` نیاز پیدا کند،
+دروازهٔ ریلیز همان لحظه می‌شکند). در `manifest.txt` هم checksum هر فایل و هم لیست
+بررسی‌های پاس‌شده ثبت می‌شود.
 
 ---
 
@@ -253,13 +262,13 @@ python3 tools/make_release.py                                                  #
 ```
 MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   اکسپرت (تک‌فایل، بدون وابستگی)
 release/GoldBasketGuard/                           نسخهٔ نهایی + manifest + راهنمای نصب
-release/GoldBasketGuard-v1.10.zip                  همان پوشه، آمادهٔ دانلود
-MQL5/Presets/*.set                                 تنظیمات آماده برای طلا
+release/GoldBasketGuard-v1.11.zip                  همان پوشه، آمادهٔ دانلود
 docs/GoldBasketGuard-parameters.md                 توضیح تک‌تک ورودی‌ها (فارسی)
 docs/GoldBasketGuard-features-fa.png               نقشهٔ گرافیکی قابلیت‌ها (فارسی)
 docs/GoldBasketGuard-flow-fa.png                   نقشهٔ گرافیکی عملکرد مدیریت سرمایه
 tools/mql5_lint.py                                 لینت سبک MQL5
 tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۶۰ بررسی)
+tools/setup_render_env.sh                          نصب محیط رندر (venv + Pillow + فونت فارسی)
 tools/make_feature_sheet.py                        مولد تصویر قابلیت‌ها (Pillow + Vazirmatn)
 tools/make_flow_sheet.py                           مولد تصویر عملکرد + شبیه‌سازی قوانین تریلینگ
 tools/make_release.py                              دروازهٔ انتشار و ساخت پوشهٔ release
@@ -272,7 +281,7 @@ tools/make_release.py                              دروازهٔ انتشار �
 ## English summary
 
 A single-file MT5 expert advisor that manages a **group (basket) of open positions** on gold (XAUUSD).
-The release-ready copy of the EA, the four presets, the Persian parameter reference and this feature sheet live in [`release/GoldBasketGuard/`](release/GoldBasketGuard/).
+The release-ready copy of the EA, the Persian parameter reference and both diagrams live in [`release/GoldBasketGuard/`](release/GoldBasketGuard/).
 
 - one distance entered once → **SL/TP applied to every ticket** of the group (`APPLY_SAME_LEVEL` = identical price level for all tickets, `APPLY_PER_TICKET` = identical distance from each entry);
 - **mirroring**: change the SL or TP of *one* ticket by hand and the EA copies that level to the whole group (including removal);

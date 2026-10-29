@@ -5,7 +5,7 @@ Everything a trader has to download lives in one place, and the copy only
 happens if the EA passes every check first -- so a file can never be published
 in a state the repo has not verified.
 
-    python3 tools/make_release.py [--version 1.10] [--check-only]
+    python3 tools/make_release.py [--check-only] [--no-zip]
 
 Checks run before anything is written:
   * tools/mql5_lint.py on the EA            (syntax-level MQL5 rules)
@@ -13,7 +13,9 @@ Checks run before anything is written:
   * byte hygiene: pure ASCII, no tabs, no CRLF, single file, no leftovers
   * balanced braces/parens outside strings and comments
   * unique input names, version property present
-  * every key of every preset exists in the EA and parses
+  * the zero-config contract: attaching the EA with NO changes must already
+    give the gold setup and every protection -- which is why there are no
+    preset files to load
 """
 from __future__ import annotations
 
@@ -29,9 +31,44 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 EA = ROOT / "MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5"
-PRESET_DIR = ROOT / "MQL5/Presets"
 DOC_DIR = ROOT / "docs"
 SHEETS = ("GoldBasketGuard-features-fa.png", "GoldBasketGuard-flow-fa.png")
+
+# What the EA must already do out of the box. A default drifting away from this
+# list means "you now need a preset file again", which is exactly what this
+# project decided against -- so the gate fails instead of shipping silently.
+DEFAULTS_CONTRACT = [
+    ("InpPipSize", "0.0", "pip size auto-detected from digits"),
+    ("InpMoneyBasis", "MONEY_AUTO", "cent vs dollar account auto-detected"),
+    ("InpOnlyThisChartSymbol", "true", "group = this chart's symbol"),
+    ("InpMagicFilter", "0", "no magic filter: catches manual trades too"),
+    ("InpIncludeBuy", "true", "buy legs in the group"),
+    ("InpIncludeSell", "true", "sell legs in the group"),
+    ("InpOnlyAfterAttach", "false", "existing positions are adopted at once"),
+    ("InpAutoApplyOnStart", "true", "levels applied on OnInit"),
+    ("InpAutoApplyToNew", "true", "every new ticket joins the group"),
+    ("InpOverwriteExisting", "true", "existing SL/TP are aligned, not skipped"),
+    ("InpSLPips", "300.0", "group stop 300 pips on gold"),
+    ("InpTPPips", "500.0", "group target 500 pips on gold"),
+    ("InpBeMode", "BE_BASKET_PIPS", "risk-free armed on the basket"),
+    ("InpBeTriggerPips", "200.0", "risk-free after 200 pips"),
+    ("InpBeLockPips", "10.0", "locked 10 pips beyond entry"),
+    ("InpTrailMode", "TRAIL_STEP", "step trailing on"),
+    ("InpTrailStartPips", "250.0", "trailing starts at 250 pips"),
+    ("InpNewsEnabled", "true", "red-folder news guard on"),
+    ("InpNewsImportance", "CALENDAR_IMPORTANCE_HIGH", "only HIGH impact events"),
+    ("InpNewsCurrencies", "", "currency derived from the symbol"),
+    ("InpNewsAction", "NEWS_CLOSE_GROUP", "closes the group inside the window"),
+    ("InpNewsPauseAutomation", "true", "no level edits during the window"),
+    ("InpEnableKillSwitch", "true", "equity guard on by default"),
+    ("InpMaxDrawdownPctEquity", "12.0", "kill switch at 12% of equity"),
+    ("InpCloseAllOnKill", "true", "kill switch closes, not just pauses"),
+    ("InpEmergencyFloatLossPct", "50", "breaker at 50% of balance at risk"),
+    ("InpEmergencyMarginLevelPct", "150", "breaker below 150% margin level"),
+    ("InpEmergencyLockHours", "24", "EA stays locked after an emergency"),
+    ("InpAdaptiveStops", "true", "widens the guard when the broker rejects"),
+    ("InpDryRun", "false", "live by default (demo is the user's choice)"),
+]
 
 
 # --------------------------------------------------------------------- helpers
@@ -57,8 +94,7 @@ class Gate:
         if r.returncode != 0:
             return False, out.strip().splitlines()[-1] if out.strip() else f"exit {r.returncode}"
         if isinstance(want, re.Pattern):
-            m = want.search(out)
-            return (bool(m), out.strip())
+            return (bool(want.search(out)), out.strip())
         if want and want not in out:
             return False, out.strip().splitlines()[-1]
         return True, out.strip()
@@ -75,8 +111,7 @@ def strip_code(src: str) -> str:
             continue
         if c == "/" and i + 1 < n and src[i + 1] == "*":
             j = src.find("*/", i + 2)
-            tail = "\n" * src.count("\n", i, n if j < 0 else j)
-            out.append(tail)
+            out.append("\n" * src.count("\n", i, n if j < 0 else j))
             i = n if j < 0 else j + 2
             continue
         if c in '"\'':
@@ -94,6 +129,25 @@ def strip_code(src: str) -> str:
         out.append(c)
         i += 1
     return "".join(out)
+
+
+def input_defaults(text: str) -> dict:
+    """{'InpSLPips': '300.0', ...} for every `input <type> Name = value;`."""
+    out = {}
+    for ln in text.splitlines():
+        m = re.match(r"\s*input\s+[\w:<>]+\s+(\w+)\s*=\s*([^;]*);", ln)
+        if m:
+            out[m.group(1)] = m.group(2).strip().strip('"')
+    return out
+
+
+def same_value(a: str, b: str) -> bool:
+    """Compare '300.0' with '300', 'true' with 'TRUE', '' with '""'."""
+    a, b = a.strip().strip('"'), b.strip().strip('"')
+    try:
+        return abs(float(a) - float(b)) < 1e-9
+    except ValueError:
+        return a.lower() == b.lower()
 
 
 # ----------------------------------------------------------------------- gates
@@ -126,10 +180,11 @@ def verify(g: Gate, version: str) -> dict:
     g.check("input count sane", len(inputs) >= 40, f"{len(inputs)} inputs")
 
     ctrl = ("if", "for", "while", "switch", "catch", "return", "else", "do")
-    funcs = [m.group(1) for m in re.finditer(
+    funcs = [mm.group(1) for mm in re.finditer(
         r"^[\w:<>,\s\*&\[\]]*?(\w+)\s*\([^;{}]*\)\s*(?:const\s*)?\{", code, re.M)
-        if m.group(1) not in ctrl]
+        if mm.group(1) not in ctrl]
     stats = dict(lines=len(lines), inputs=len(inputs), funcs=len(funcs),
+                 groups=sum(1 for l in lines if re.match(r"\s*input\s+group\b", l)),
                  version=m.group(1) if m else "?")
 
     ok, out = g.run(["tools/mql5_lint.py", str(EA.relative_to(ROOT))])
@@ -141,57 +196,17 @@ def verify(g: Gate, version: str) -> dict:
     g.check("logic mirror tests", tests_ok, mm.group(0) if mm else "no test output")
     stats["tests"] = f"{mm.group(1)}/{mm.group(2)}" if mm else "0/0"
 
-    # presets: every key must be a real input, values must parse
-    decl = dict(re.findall(r"^\s*input\s+(?:group\s+)?[\w:<>,\s\*&]*?\b(\w+)\s*=\s*([^;]*);",
-                           text, re.M))
-    types = {}
-    for ln in text.splitlines():
-        m = re.match(r"\s*input\s+(?:group\s+)?(.+?)\s+(\w+)\s*=", ln)
-        if m:
-            types[m.group(2)] = m.group(1).strip()
+    # zero-config contract
+    d = input_defaults(text)
+    off = [f"{k}={d.get(k, '<missing>')} should be {v!r} ({why})"
+           for k, v, why in DEFAULTS_CONTRACT if not same_value(d.get(k, "\x00"), v)]
+    g.check(f"zero-config contract ({len(DEFAULTS_CONTRACT)} defaults)", not off,
+            "; ".join(off[:3]) or "attach with no changes = gold setup, all guards armed")
+    stats["contract"] = len(DEFAULTS_CONTRACT)
 
-    def value_ok(name: str, val: str) -> bool:
-        t = types.get(name, "")
-        if t == "string":
-            return True
-        if val == "":                                   # empty string / default
-            return t in ("", "string")
-        if t in ("double", "float"):
-            return bool(re.fullmatch(r"-?\d+(\.\d+)?([eE][-+]?\d+)?", val))
-        if t in ("bool",):
-            return val in ("true", "false", "0", "1")
-        if t in ("color",):
-            return bool(re.fullmatch(r"0[xX][0-9a-fA-F]{6}|\d+|C'[^']+'|clr_\w+", val))
-        if t in ("int", "long", "uint", "ulong", "short", "char", "uchar", "long long"):
-            return bool(re.fullmatch(r"-?\d+", val))
-        if t in ("datetime",):
-            return bool(re.fullmatch(r"-?\d+|\d{4}\.\d{2}\.\d{2}(\s\d{2}:\d{2}(:\d{2})?)?", val))
-        # enum input: a member name or its numeric value
-        return bool(re.fullmatch(r"-?\d+", val) or re.fullmatch(r"\w+", val))
-    bad = []
-    for s in sorted(PRESET_DIR.glob("*.set")):
-        keys = []
-        for ln in s.read_text(encoding="utf-8").splitlines():
-            ln = ln.strip()
-            if not ln or ln.startswith(";"):
-                continue
-            if "=" not in ln:
-                bad.append(f"{s.name}: no '=' in {ln[:28]!r}")
-                continue
-            k, v = ln.split("=", 1)
-            k, v = k.strip(), v.strip().rstrip(";").strip().strip('"')
-            keys.append(k)
-            if k not in types:
-                bad.append(f"{s.name}: {k} is not an input")
-            elif not value_ok(k, v):
-                bad.append(f"{s.name}: {k}={v[:20]!r} does not fit input type "
-                           f"{types[k]!r}")
-        if len(keys) != len(set(keys)):
-            bad.append(f"{s.name}: duplicate keys")
-    presets = sorted(p.name for p in PRESET_DIR.glob("*.set"))
-    g.check(f"presets valid ({len(presets)} files)", not bad and len(presets) >= 1,
-            "; ".join(bad[:3]))
-    stats["presets"] = len(presets)
+    # no preset folder may come back without the gate knowing about it
+    stray = sorted(p.name for p in (ROOT / "MQL5/Presets").glob("*.set")) if (ROOT / "MQL5/Presets").exists() else []
+    g.check("no preset files to load", not stray, "removed on purpose" if not stray else f"found {stray}")
     return stats
 
 
@@ -200,11 +215,9 @@ def write_release(version: str, stats: dict, g: Gate, do_zip: bool) -> Path:
     out = ROOT / "release/GoldBasketGuard"
     if out.exists():
         shutil.rmtree(out)
-    (out / "presets").mkdir(parents=True)
+    out.mkdir(parents=True)
 
     shutil.copy2(EA, out / EA.name)
-    for s in sorted(PRESET_DIR.glob("*.set")):
-        shutil.copy2(s, out / "presets" / s.name)
     for name in ("GoldBasketGuard-parameters.md", *SHEETS):
         src = DOC_DIR / name
         if src.exists():
@@ -212,15 +225,14 @@ def write_release(version: str, stats: dict, g: Gate, do_zip: bool) -> Path:
 
     readme = f"""# GoldBasketGuard v{version} — release folder
 
-این پوشه نسخهٔ نهایی و بررسی‌شدهٔ اکسپرت است. فایل اصلی برای MetaEditor همان
-`GoldBasketGuard.mq5` است (تک‌فایل، بدون `#include` اختصاصی).
+این پوشه نسخهٔ نهایی و بررسی‌شدهٔ اکسپرت است. **هیچ فایل پیش‌تنظیمی لازم نیست**:
+همه‌چیز در خود فایل ساخته شده و مقداردهیِ پیش‌فرض برای طلا تنظیم شده است.
 
 ## contents
 
 | file | what it is |
 |---|---|
-| `GoldBasketGuard.mq5` | the EA ({stats['lines']} lines, {stats['inputs']} inputs) |
-| `presets/*.set` | {stats['presets']} ready-made profiles for gold |
+| `GoldBasketGuard.mq5` | the EA — {stats['lines']} lines, {stats['inputs']} inputs, {stats['groups']} input groups |
 | `GoldBasketGuard-parameters.md` | every parameter, Persian reference |
 | `GoldBasketGuard-features-fa.png` | one-image feature sheet (Persian) |
 | `GoldBasketGuard-flow-fa.png` | how the risk engine behaves, tick by tick |
@@ -231,9 +243,21 @@ def write_release(version: str, stats: dict, g: Gate, do_zip: bool) -> Path:
 1. در MetaTrader 5 منوی `File → Open Data Folder` را بزنید.
 2. پوشهٔ `MQL5/Experts/GoldBasketGuard/` را بسازید و `GoldBasketGuard.mq5` را در آن بگذارید.
 3. MetaEditor را باز کنید، فایل را باز کنید و `F7` (Compile) — باید `0 errors` بگیرید.
-4. نمودار `XAUUSD` (M5 یا M15) → تب `Navigator → Expert Advisors` → اکسپرت را بکشید روی چارت.
-5. در تب `Common` گزینهٔ `Allow Algo Trading` را روشن کنید، سپس در تب `Inputs`
-   یکی از فایل‌های `presets/*.set` را `Load` کنید (برای شروع: `GoldBasketGuard_DryRun_Safe.set`).
+4. نمودار `XAUUSD` (M5 یا M15) → `Navigator → Expert Advisors` → اکسپرت را بکشید روی چارت.
+5. در تب `Common` تیک `Allow Algo Trading` را روشن کنید. **تب Inputs را دست نزنید** —
+   همه‌چیز آماده است. برای اولین اجرا اگر خواستید فقط تماشا کنید، `InpDryRun=true`.
+
+### چه چیزهایی خودش تشخیص داده می‌شود
+
+- اندازهٔ پیپ از تعداد رقم اعشار نماد (`AutoPipSize`)، ارزش پول به‌ازای پیپ از `TICK_SIZE` / `TICK_VALUE`
+- حساب **سنتی یا دلاری** از ارز حساب؛ اعداد پولی خودکار تقسیم/ضرب می‌شوند، درصدها نه
+- `hedging` یا `netting` بودن حساب، و سطح مارجین آزاد
+- `STOPS_LEVEL` و `FREEZE_LEVEL` کارگزار؛ اگر سرور سطحی را رد کند، حاشیه زیاد و دوباره تلاش می‌شود
+- نوع fill مجاز نماد، محدودیت نرخ ارسال دستور، و حضور/عدم حضور تقویم اقتصادی
+- ارز خبر از نام نماد (XAU/GOLD → USD)؛ اگر تقویم در دسترس نبود، پنجرهٔ دستی `InpNewsManualWindows`
+
+قصد معاملاتی (فاصلهٔ حد ضرر/حد سود، آستانهٔ ریسک‌فری، «کدام معاملات گروه من است»)
+تشخیص‌دادنی نیست؛ همان‌ها در پنل روی چارت یا تب Inputs تایپ می‌شوند.
 
 > این اکسپرت معامله باز نمی‌کند؛ فقط مدیریت حد سود/حد ضرر، ریسک‌فری، گارد اخبار
 > و مدیریت سرمایهٔ گروهی را انجام می‌دهد. اول روی حساب دمو تست شود.
@@ -245,13 +269,15 @@ def write_release(version: str, stats: dict, g: Gate, do_zip: bool) -> Path:
 Rebuild this folder any time with:
 
 ```
-python3 tools/make_release.py --version {version}
+python3 tools/make_release.py
 ```
 """
     (out / "README.md").write_text(readme, encoding="utf-8")
 
     man = [f"GoldBasketGuard v{version}", f"built {date.today().isoformat()} by tools/make_release.py",
-           f"source: {EA.relative_to(ROOT)}", "", "files (sha256  size  name):"]
+           f"source: {EA.relative_to(ROOT)}",
+           f"defaults contract: {stats['contract']} inputs pinned (no preset files needed)", "",
+           "files (sha256  size  name):"]
     for f in sorted(out.rglob("*")):
         if f.is_file() and f.name != "manifest.txt":
             b = f.read_bytes()
@@ -260,6 +286,8 @@ python3 tools/make_release.py --version {version}
     (out / "manifest.txt").write_text("\n".join(man) + "\n", encoding="utf-8")
 
     if do_zip:
+        for old in (ROOT / "release").glob("GoldBasketGuard-v*.zip"):
+            old.unlink()
         zp = ROOT / f"release/GoldBasketGuard-v{version}.zip"
         with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
             for f in sorted(out.rglob("*")):
@@ -271,7 +299,7 @@ python3 tools/make_release.py --version {version}
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--version", default=None, help="must match #property version in the EA")
+    ap.add_argument("--version", default=None, help="defaults to #property version in the EA")
     ap.add_argument("--check-only", action="store_true", help="run the gates, write nothing")
     ap.add_argument("--no-zip", action="store_true")
     a = ap.parse_args()
@@ -279,18 +307,17 @@ def main() -> int:
     if not a.version:
         m = re.search(r'#property\s+version\s+"([^"]+)"', EA.read_text(encoding="utf-8"))
         a.version = m.group(1) if m else "0.0"
-        if a.check_only:
-            print(f"(version read from the EA: {a.version})")
 
     g = Gate()
-    stats = verify(g, a.version or "0.0")
+    stats = verify(g, a.version)
     for p in g.passed:
         print(f"  ok    {p}")
     for p in g.problems:
         print(f"  FAIL  {p}")
     print(f"{'PASS' if not g.problems else 'BLOCKED'}: {len(g.passed)} checks, "
-          f"{len(g.problems)} problems — {stats['lines']} lines, {stats['inputs']} inputs, "
-          f"{stats['funcs']} functions, tests {stats['tests']}")
+          f"{len(g.problems)} problems — v{stats['version']}, {stats['lines']} lines, "
+          f"{stats['inputs']} inputs, {stats['funcs']} functions, tests {stats['tests']}, "
+          f"contract {stats['contract']}/{stats['contract']}")
     if g.problems:
         print("release NOT written: fix the problems above first")
         return 1

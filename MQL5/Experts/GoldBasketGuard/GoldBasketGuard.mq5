@@ -5,11 +5,13 @@
 //+------------------------------------------------------------------+
 #property copyright   "my-new-trading-system"
 #property link        "https://github.com/umberlla19733/my-new-trading-system"
-#property version     "1.10"
+#property version     "1.11"
 #property description "Group (basket) stop-loss / take-profit manager with automatic risk-free for MT5"
 #property description "Gold / XAUUSD: set TP-SL on ONE ticket, the whole group is aligned to it"
 #property description "News guard (red-folder), risk-percent position sizing, cent/dollar auto-detect, 50% account breaker"
-#property description "Test on a demo account first. Not investment advice."
+#property description "Zero-config: pip size, stops/freeze levels, hedging/netting and account currency are detected"
+#property description "at start, so no preset file is needed - defaults are tuned for gold. Demo account first."
+#property description "Not investment advice."
 
 #include <Trade\Trade.mqh>
 
@@ -125,8 +127,8 @@ input bool     InpEnableBasketMoneyExit  = false;     // Close group on money ta
 input double   InpBasketTakeMoney        = 500.0;     // Group take-profit in money
 input double   InpBasketStopMoney        = 500.0;     // Group stop-loss in money (positive number)
 input double   InpEstCommissionPerLot    = 0.0;        // Est. round-turn commission per 1.0 lot (for calc)
-input bool     InpEnableKillSwitch       = false;     // Hard equity guard: close all + stop EA
-input double   InpMaxDrawdownPctEquity   = 15.0;      // If floating loss of group > % equity -> kill switch
+input bool     InpEnableKillSwitch       = true;      // Hard equity guard: close all + stop EA
+input double   InpMaxDrawdownPctEquity   = 12.0;      // If floating loss of group > % equity -> kill switch
 input bool     InpCloseAllOnKill         = true;      // Kill switch also closes the group
 
 input group "7) Broker safety"
