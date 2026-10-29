@@ -52,6 +52,8 @@ DEFAULTS_CONTRACT = [
     ("InpMirrorTP", "true", "a manual TP drag is mirrored to the whole group"),
     ("InpTimerMs", "100", "100 ms loop: sub-second reaction instead of 1 s"),
     ("InpIdleRefreshMs", "1000", "a chart with no positions works at one hertz, not ten"),
+    ("InpSendBackoffMs", "2000", "a refused request is held back instead of repeated every cycle"),
+    ("InpErrorFuseCount", "8", "eight refusals in a row pause automatic sending before the broker stops us"),
     ("InpInstantMirror", "true", "trade events are answered inside the event itself"),
     ("InpMirrorGuardMs", "250", "own echo suppressed by value, never by a blind seconds window"),
     ("InpMinMsPerTicket", "0", "no cool-down between two modifications of a ticket"),
@@ -110,6 +112,25 @@ class Gate:
         if want and want not in out:
             return False, out.strip().splitlines()[-1]
         return True, out.strip()
+
+
+def ea_function_body(text: str, name: str) -> str:
+    """The body of one MQL5 function, braces counted - for rules about a call site."""
+    m = re.search(rf"^\w[\w:<>,*& \t]*\b{re.escape(name)}\s*\([^;()]*\)\s*(?:const\s*)?$",
+                  text, re.M)
+    if not m:
+        return ""
+    i = text.index("{", m.end())
+    depth, j = 0, i
+    while j < len(text):
+        if text[j] == "{":
+            depth += 1
+        elif text[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[i:j + 1]
+        j += 1
+    return text[i:]
 
 
 def strip_code(src: str) -> str:
@@ -272,6 +293,30 @@ def verify(g: Gate, version: str) -> dict:
             and "g_is_tester = IsTester();" in text, "InTester() must not be an accessor per guard")
     g.check("idle loop backs off", "EventSetMillisecondTimer(g_timer_ms)" in text
             and "InpIdleRefreshMs" in text, "one hertz while the chart holds nothing")
+
+    # the v1.16 reliability contract: refuse-to-send storms are what stop an EA
+    sleeps = [l.strip() for l in code.splitlines() if "Sleep(" in l]
+    g.check("no sleeping inside a live cycle", len(sleeps) == 1 and sleeps[0].startswith("Sleep(50)"),
+            f"{len(sleeps)} Sleep site(s): " + (sleeps[0] if sleeps else "-"))
+    body = ea_function_body(text, "TryModify")
+    g.check("a refused modify is remembered", "BoHold(g_pos[i].ticket, sig)" in body
+            and "FuseTrip(rc)" in body, "cool-down + fuse in front of the retry")
+    g.check("the cool-down is consulted before sending",
+            "BoHeld(g_pos[i].ticket, sig)" in body and "FuseOn() && !g_fuse_clear" in body,
+            "the same rejected level cannot be pushed every 100 ms")
+    g.check("closes are never delayed or fused",
+            "FuseOn()" not in ea_function_body(text, "CloseSingle")
+            and "BoHeld" not in ea_function_body(text, "CloseSingle")
+            and "RateLimitOk()" in ea_function_body(text, "CloseSingle"),
+            "an unwanted position is more dangerous than a slow retry")
+    g.check("an emergency lock expires by itself",
+            "g_killed = false;" in ea_function_body(text, "LockoutTick"),
+            "InpEmergencyLockHours is a duration, not a life sentence")
+    g.check("a pause is not carried into the next session",
+            'GVSet("PAUSEUI"' not in text and 'GVGet("PAUSEUI"' not in text,
+            "a stray keypress must not disable the EA after a restart")
+    g.check("a lost timer is re-armed", text.count("EventSetMillisecondTimer(g_timer_ms)") >= 2,
+            "the watchdog in RunCycle() plus OnInit")
 
     # no preset folder may come back without the gate knowing about it
     stray = sorted(p.name for p in (ROOT / "MQL5/Presets").glob("*.set")) if (ROOT / "MQL5/Presets").exists() else []
