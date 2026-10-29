@@ -1,0 +1,66 @@
+; GoldBasketGuard preset - grid / averaging basket on gold (XAUUSD 2 digits)
+; The whole basket shares ONE TP and ONE SL, the group is switched to risk-free
+; after 150 pips, part of the volume is taken off, and a kill-switch protects equity.
+;--- group ---
+InpMagicFilter=0
+InpOnlyThisChartSymbol=true
+InpIncludeBuy=true
+InpIncludeSell=true
+InpOnlyAfterAttach=false
+;--- group TP / SL ---
+InpApplyMode=1
+InpSLPips=450.0
+InpTPPips=250.0
+InpOverwriteExisting=true
+InpAutoApplyToNew=true
+InpAutoApplyOnStart=true
+InpReapplyEveryCycle=true
+InpAbsSLPrice=0.0
+InpAbsTPPrice=0.0
+;--- mirror one edit to all ---
+InpMirrorSL=true
+InpMirrorTP=true
+InpMirrorMode=1
+InpMirrorGuardSec=4
+;--- risk free ---
+InpBeMode=2
+InpBeTriggerPips=150.0
+InpBeLockPips=8.0
+InpBeLevel=1
+InpBeOnlyIfProfitable=true
+InpBeOneShot=false
+InpBeClosePartial=true
+InpBeClosePartialPct=30.0
+InpBeUseHardTpInstead=false
+;--- trailing ---
+InpTrailMode=3
+InpTrailStartPips=200.0
+InpTrailMinPips=35.0
+InpTrailMaxPips=160.0
+InpTrailCoefPct=30.0
+InpTrailFollowGroup=true
+InpTrailMoveTpToo=false
+;--- money ---
+InpEnableBasketMoneyExit=true
+InpBasketTakeMoney=250.0
+InpBasketStopMoney=600.0
+InpEstCommissionPerLot=7.0
+InpEnableKillSwitch=true
+InpMaxDrawdownPctEquity=15.0
+InpCloseAllOnKill=true
+;--- broker safety (gold) ---
+InpPipSize=0.1
+InpMinStopsPoints=10
+InpMinDeltaPoints=3
+InpDeviationPoints=50
+InpMaxModsPerSecond=3
+InpMinSecPerTicket=3
+InpRetryCount=4
+InpRetryDelayMs=400
+InpRequireNewBar=false
+InpTimerSeconds=1
+InpDryRun=false
+;--- ui ---
+InpShowPanel=true
+InpAlertOnRiskFree=true
+InpVerboseLog=true
