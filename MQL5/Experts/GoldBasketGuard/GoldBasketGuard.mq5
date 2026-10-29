@@ -5,12 +5,12 @@
 //+------------------------------------------------------------------+
 #property copyright   "my-new-trading-system"
 #property link        "https://github.com/umberlla19733/my-new-trading-system"
-#property version     "1.11"
+#property version     "1.12"
 #property description "Group (basket) stop-loss / take-profit manager with automatic risk-free for MT5"
 #property description "Gold / XAUUSD: set TP-SL on ONE ticket, the whole group is aligned to it"
 #property description "News guard (red-folder), risk-percent position sizing, cent/dollar auto-detect, 50% account breaker"
 #property description "Zero-config: pip size, stops/freeze levels, hedging/netting and account currency are detected"
-#property description "at start, so no preset file is needed - defaults are tuned for gold. Demo account first."
+#property description "at start, so no preset file is needed. Sub-second reaction: 100 ms loop + trade-event driven mirroring."
 #property description "Not investment advice."
 
 #include <Trade\Trade.mqh>
@@ -95,7 +95,7 @@ input group "3) Mirror one manual edit to the whole group (core feature)"
 input bool     InpMirrorSL               = true;     // If I edit SL on one ticket -> apply to all
 input bool     InpMirrorTP               = true;     // If I edit TP on one ticket -> apply to all
 input ENUM_APPLY_MODE InpMirrorMode      = APPLY_SAME_LEVEL; // Mirror as: same price / same distance
-input int      InpMirrorGuardSec         = 4;        // Ignore changes made by EA itself (seconds)
+input int      InpMirrorGuardMs          = 250;       // Max ms to wait for the echo of our own modify
 
 input group "4) Risk-free / breakeven (automatic)"
 input ENUM_BE_MODE  InpBeMode            = BE_BASKET_PIPS; // Risk-free trigger
@@ -136,12 +136,14 @@ input double   InpPipSize                = 0.0;       // Price value of 1 pip (0
 input int      InpMinStopsPoints         = 0;         // Extra guard distance in points (on top of broker)
 input int      InpMinDeltaPoints         = 2;         // Skip modify if change < N points (anti-spam)
 input int      InpDeviationPoints        = 30;        // Max deviation / slippage in points
-input int      InpMaxModsPerSecond       = 4;         // Rate limit of modification requests
-input int      InpMinSecPerTicket        = 2;         // Min seconds between 2 mods of same ticket
+input int      InpMaxModsPerSecond       = 25;        // Rate limit of modification requests (0 = no limit)
+input int      InpMinMsPerTicket         = 0;         // Min ms between 2 mods of the same ticket (0 = none)
 input int      InpRetryCount             = 3;         // Retries on requote/busy
-input int      InpRetryDelayMs           = 350;       // Delay between retries (ms, ignored in tester)
+input int      InpRetryDelayMs           = 120;       // Delay between retries (ms, ignored in tester)
 input bool     InpRequireNewBar          = false;     // Evaluate only once per new bar
-input int      InpTimerSeconds           = 1;         // Watchdog timer (seconds, 0 = only OnTick)
+input int      InpTimerMs                = 100;       // Fast loop period in ms (0 = OnTick only)
+input int      InpPanelRefreshMs         = 150;       // Panel repaint period (ms)
+input bool     InpInstantMirror          = true;       // React to trade events at once, do not wait for the loop
 input bool     InpDryRun                 = false;     // Dry run: log decisions, send nothing
 
 input group "8) News guard - red-folder protection"
@@ -238,6 +240,10 @@ string   g_gv_prefix     = "";
 string   g_warn         = "";
 int      g_mod_this_sec = 0;
 long     g_sec_stamp    = 0;
+ulong    g_panel_ms     = 0;         // last panel repaint (ms clock)
+int      g_last_ms      = 0;         // duration of the last management cycle (ms)
+int      g_slow_ms      = 0;         // slowest cycle since the terminal was started
+bool     g_in_trade     = false;     // re-entrancy guard for OnTradeTransaction
 int      g_apply_seq    = 0;
 double   g_mirrorSlDist = -1.0;
 double   g_mirrorTpDist = -1.0;
@@ -284,6 +290,10 @@ struct SSticker          // per-ticket memory: our last known SL/TP + timing
    datetime seen;         // last time we recorded a change
    long     seq;          // last modification sequence by EA
    bool     be_done;
+   ulong    seen_ms;      // ms clock of that record (GetTickCount64)
+   double   req_sl, req_tp;  // SL/TP we last asked the server for
+   ulong    req_ms;       // ms clock of that request
+   bool     pending;      // request sent, its echo has not been seen yet
   };
 
 SPos     g_pos[];
@@ -332,8 +342,8 @@ int OnInit()
    if(!g_hedging)
       g_warn = "NETTING account: the group is a single ticket - mirroring is limited.";
 
-   if(InpTimerSeconds > 0 && !IsTester())
-      EventSetTimer(MathMax(1, InpTimerSeconds));
+   if(InpTimerMs > 0 && !IsTester())
+      EventSetMillisecondTimer(MathMax(20, InpTimerMs));   // 100 ms loop: reaction, not 1 s
 
    if(InpShowPanel && (!IsTester() || IsVisual()))
       PanelCreate();
@@ -343,7 +353,7 @@ int OnInit()
                     g_acct_ccy, g_cent ? " (cent)" : "", MoneyPerPipPerLot(_Symbol) > 0 ? 1.0 : 0.0));
    if(AccountInfoInteger(ACCOUNT_TRADE_EXPERT) == 0)
       g_warn = "the broker account forbids EA trading (ACCOUNT_TRADE_EXPERT = false)";
-   Manage();
+   RunCycle();
    return(INIT_SUCCEEDED);
   }
 //+------------------------------------------------------------------+
@@ -360,14 +370,32 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
   {
-   Manage();
+   RunCycle();
   }
 //+------------------------------------------------------------------+
 //| Watchdog (needed when the symbol ticks slowly / weekend)         |
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   Manage();
+   RunCycle();
+  }
+//+------------------------------------------------------------------+
+//| Does this position ticket belong to the group we manage?         |
+//+------------------------------------------------------------------+
+bool TicketInGroup(const ulong t)
+  {
+   if(t == 0)
+      return false;
+   if(StFind(t) >= 0)
+      return true;
+   if(!PositionSelectByTicket(t))
+      return false;
+   long   mg    = (long)PositionGetInteger(POSITION_MAGIC);
+   int    typ   = (int)PositionGetInteger(POSITION_TYPE);
+   datetime op  = (datetime)PositionGetInteger(POSITION_TIME);
+   string   cmt = PositionGetString(POSITION_COMMENT);
+   string   sym = PositionGetString(POSITION_SYMBOL);
+   return MatchPosition(t, sym, mg, cmt, typ, op);
   }
 //+------------------------------------------------------------------+
 //| Trade events: a new position was opened -> apply group stops     |
@@ -380,6 +408,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       return;
    if(trans.type == TRADE_TRANSACTION_POSITION)
      {
+      bool ours = TicketInGroup(trans.position);
       if(trans.deal_type == DEAL_TYPE_BUY || trans.deal_type == DEAL_TYPE_SELL)
         {
          if(InpAutoApplyToNew)
@@ -390,6 +419,14 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
         }
       else
          g_dirty = true;   // position closed -> recompute group
+      // A manual SL/TP drag must be mirrored NOW, not on the next timer tick:
+      // react inside the event itself (g_in_trade guards against re-entrancy).
+      if(ours && InpInstantMirror && !g_in_trade)
+        {
+         g_in_trade = true;
+         RunCycle();
+         g_in_trade = false;
+        }
      }
    else
       if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
@@ -442,6 +479,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 //+------------------------------------------------------------------+
 void OnHotkey(const int key)
   {
+   g_panel_ms = 0;                      // react visually at once
    switch(key)
      {
       case '1': ApplyGroupStops(true,  true,  "hotkey");  break;
@@ -460,6 +498,7 @@ void OnHotkey(const int key)
 //+------------------------------------------------------------------+
 void OnButton(string name)
   {
+   g_panel_ms = 0;                      // a click repaints the panel at once
    static datetime last_close_arm = 0;
    if(name == "APPLY")       { ReadEdits(); ApplyGroupStops(true,  true,  "panel"); }
    else if(name == "SL")     { ReadEdits(); ApplyGroupStops(true,  false, "panel"); }
@@ -516,6 +555,18 @@ double AutoPipSize()
   }
 //+------------------------------------------------------------------+
 //| main cycle                                                        |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| One management cycle, timed, so the panel can show the real speed |
+//+------------------------------------------------------------------+
+void RunCycle()
+  {
+   long t0 = NowMs();
+   Manage();
+   g_last_ms = (int)(NowMs() - t0);
+   if(g_last_ms > g_slow_ms)
+      g_slow_ms = g_last_ms;
+  }
 //+------------------------------------------------------------------+
 void Manage()
   {
@@ -800,12 +851,28 @@ void DetectManualEdits()
       bool sl_diff = (MathAbs(g_pos[i].sl - g_st[k].sl) > pt);
       bool tp_diff = (MathAbs(g_pos[i].tp - g_st[k].tp) > pt);
       if(!sl_diff && !tp_diff)
+        {
+         // nothing to mirror: our memory already equals reality. Close the request as
+         // soon as it is matched, or as soon as the echo window has simply passed.
+         if(g_st[k].pending && (IsOurEcho(i, k, pt) ||
+            NowMs() - (long)g_st[k].req_ms > InpMirrorGuardMs))
+            g_st[k].pending = false;
          continue;
+        }
 
-      bool was_ours = (TimeCurrent() - g_st[k].seen) < MathMax(1, InpMirrorGuardSec);
-      StRemember(i);                            // always resync our memory
-      if(was_ours)
-         continue;                              // this was our own modification
+      // Something DID change. Only a value we did not ask for counts as a manual
+      // edit, so a fast drag right after one of our own modifies is never swallowed
+      // by a blind time window (the old bug: such an edit was silently dropped).
+      bool echoed = IsOurEcho(i, k, pt);
+      if(g_st[k].pending && !echoed && StPendingLive(k))
+         continue;                              // request in flight, re-check next cycle
+      g_st[k].pending = false;
+      if(echoed)
+        {
+         StRemember(i);
+         continue;                              // that one was ours
+        }
+      StRemember(i);                            // memory now holds the trader's values
 
       if(sl_diff && InpMirrorSL)
         {
@@ -1377,8 +1444,10 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
                       (g_pos[i].tp > 0.0 && (buy_side ? (tp < g_pos[i].tp) : (tp > g_pos[i].tp))));
    int    kk       = StFind(g_pos[i].ticket);
    bool   is_clear = (sl <= 0.0 && tp <= 0.0);
-   if(!protective && !is_clear && kk >= 0 && InpMinSecPerTicket > 0 &&
-      (TimeCurrent() - g_st[kk].seen) < InpMinSecPerTicket)
+   if(!protective && kk >= 0 && StPendingLive(kk))
+      return false;                    // our previous request for this ticket is in flight
+   if(!protective && !is_clear && kk >= 0 && InpMinMsPerTicket > 0 &&
+      NowMs() - (long)g_st[kk].seen_ms < InpMinMsPerTicket)
       return false;                    // anti-spam cool-down for this ticket
 
    double frz = (double)SymbolInfoInteger(sym, SYMBOL_TRADE_FREEZE_LEVEL) * pt;
@@ -1434,9 +1503,19 @@ bool TryModify(const int i, double sl_req, double tp_req, string reason)
         {
          double old_sl = g_pos[i].sl;
          double old_tp = g_pos[i].tp;
-         g_pos[i].sl = sl;
-         g_pos[i].tp = tp;
+         // take the level the server ACCEPTED (it can snap to the minimum distance):
+         // memory then never disagrees with reality, so no correction loop can start
+         double srv_sl = sl, srv_tp = tp;
+         if(PositionSelectByTicket(g_pos[i].ticket))
+           {
+            srv_sl = PositionGetDouble(POSITION_SL);
+            srv_tp = PositionGetDouble(POSITION_TP);
+           }
+         g_pos[i].sl = srv_sl;
+         g_pos[i].tp = srv_tp;
          StRemember(i);
+         if(MathAbs(srv_sl - sl) <= g_point * 0.5 && MathAbs(srv_tp - tp) <= g_point * 0.5)
+            StMarkSent(i, sl, tp);      // wait for the echo of exactly this level
          if(InpVerboseLog)
             PrintFormat("GoldBasketGuard: #%s %s | SL %s -> %s | TP %s -> %s",
                         Tk(g_pos[i].ticket), reason,
@@ -1497,10 +1576,59 @@ void StRemember(const int i)
       g_st[k].be_done = false;
       g_st[k].seq     = 0;
      }
-   g_st[k].sl   = g_pos[i].sl;
-   g_st[k].tp   = g_pos[i].tp;
-   g_st[k].seen = TimeCurrent();
-   g_st[k].seq  = g_apply_seq;
+   g_st[k].sl       = g_pos[i].sl;
+   g_st[k].tp       = g_pos[i].tp;
+   g_st[k].seen     = TimeCurrent();
+   g_st[k].seen_ms  = NowMs();
+   g_st[k].seq      = g_apply_seq;
+   g_st[k].pending  = false;      // our memory now equals what the server has
+  }
+//+------------------------------------------------------------------+
+long NowMs()
+  {
+   return (long)GetTickCount64();
+  }
+//+------------------------------------------------------------------+
+//| Remember exactly what we asked the server for: its echo is then   //|
+//| recognised by value, not by guessing how long a modify may take   //|
+//+------------------------------------------------------------------+
+void StMarkSent(const int i, const double sl, const double tp)
+  {
+   int k = StFind(g_pos[i].ticket);
+   if(k < 0)
+      StRemember(i);
+   k = StFind(g_pos[i].ticket);
+   if(k < 0)
+      return;
+   g_st[k].req_sl  = sl;
+   g_st[k].req_tp  = tp;
+   g_st[k].req_ms  = NowMs();
+   g_st[k].pending = true;
+  }
+//+------------------------------------------------------------------+
+//| Does the live value of ticket i equal exactly what we asked for?  //|
+//+------------------------------------------------------------------+
+bool IsOurEcho(const int i, const int k, const double pt)
+  {
+   if(k < 0 || k >= ArraySize(g_st) || !g_st[k].pending)
+      return false;
+   double dsl = MathAbs(g_pos[i].sl - g_st[k].req_sl);
+   double dtp = MathAbs(g_pos[i].tp - g_st[k].req_tp);
+   return (dsl <= pt && dtp <= pt);
+  }
+//+------------------------------------------------------------------+
+//| True while one of our requests is still in flight for this slot   //|
+//+------------------------------------------------------------------+
+bool StPendingLive(const int k)
+  {
+   if(k < 0 || k >= ArraySize(g_st) || !g_st[k].pending)
+      return false;
+   if(NowMs() - (long)g_st[k].req_ms > MathMax(500, 4 * InpMirrorGuardMs))
+     {
+      g_st[k].pending = false;      // the echo never arrived: stop blocking the ticket
+      return false;
+     }
+   return true;
   }
 //+------------------------------------------------------------------+
 void PruneStickers()
@@ -1522,6 +1650,11 @@ void PruneStickers()
          g_st[k].seen    = g_st[last].seen;
          g_st[k].seq     = g_st[last].seq;
          g_st[k].be_done = g_st[last].be_done;
+         g_st[k].seen_ms = g_st[last].seen_ms;
+         g_st[k].req_sl  = g_st[last].req_sl;
+         g_st[k].req_tp  = g_st[last].req_tp;
+         g_st[k].req_ms  = g_st[last].req_ms;
+         g_st[k].pending = g_st[last].pending;
         }
       ArrayResize(g_st, last);
      }
@@ -1763,6 +1896,9 @@ void PanelUpdate()
   {
    if(!InpShowPanel || IsTester() && !IsVisual())
       return;
+   if(InpPanelRefreshMs > 0 && NowMs() - (long)g_panel_ms < InpPanelRefreshMs)
+      return;                          // repaint at most every N ms; the loop is faster
+   g_panel_ms = NowMs();
    if(ObjectFind(0,GBG + "BG") < 0)
      {
       PanelCreate();
@@ -1820,9 +1956,12 @@ void PanelUpdate()
      }
    else
      {
+      string cad = (InpTimerMs > 0 && !IsTester()) ? StringFormat("loop %d ms", MathMax(20, InpTimerMs))
+                                                   : "loop OnTick only";
       s[11] = (n == 0 ? "waiting for positions of the group"
-                      : StringFormat("live | dry-run %s | %s", InpDryRun ? "ON" : "off",
-                                      g_news_calendar ? "calendar ok" : "calendar unavailable"));
+                      : StringFormat("%s | cycle %d ms (max %d) | dry-run %s | %s", cad,
+                                     g_last_ms, g_slow_ms, InpDryRun ? "ON" : "off",
+                                     g_news_calendar ? "calendar ok" : "calendar unavailable"));
       OLabel("L11",InpPanelX+10,InpPanelY+42+11*rowh,s[11],InpClrText,InpFontSize);
      }
 

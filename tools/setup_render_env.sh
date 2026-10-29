@@ -32,13 +32,27 @@ if ls "$FONT_DIR"/Vazirmatn-*.ttf >/dev/null 2>&1; then
   echo "    already installed ($(ls "$FONT_DIR"/Vazirmatn-*.ttf | wc -l) weights)"
 else
   tmp="$(mktemp -d)"
-  curl -sL --max-time 180 -o "$tmp/vaz.tgz" "$VAZIR"
-  tar xzf "$tmp/vaz.tgz" -C "$tmp"
+  # retry, and check the payload: a silent partial download used to leave the
+  # font dir empty and the renderers then complained about missing weights
+  for try in 1 2 3; do
+    if curl -fsSL --retry 2 --max-time 300 -o "$tmp/vaz.tgz" "$VAZIR" &&
+       [ "$(wc -c < "$tmp/vaz.tgz")" -gt 1000000 ] && tar xzf "$tmp/vaz.tgz" -C "$tmp"; then
+      break
+    fi
+    echo "    download attempt $try failed, retrying in 3 s"
+    sleep 3
+  done
   src="$(find "$tmp" -type d -name ttf -path '*fonts*' | head -1)"
+  if [ -z "$src" ]; then
+    echo "    ERROR: Vazirmatn archive not usable - re-run this script (no network?)"
+    rm -rf "$tmp"; exit 1
+  fi
   for w in Regular Medium SemiBold Bold ExtraBold; do
     cp "$src/Vazirmatn-$w.ttf" "$FONT_DIR/" 2>/dev/null || echo "    missing weight: $w"
   done
   rm -rf "$tmp"
+  got="$(ls "$FONT_DIR"/Vazirmatn-*.ttf 2>/dev/null | wc -l)"
+  [ "$got" -ge 5 ] || { echo "    ERROR: only $got weights installed in $FONT_DIR"; exit 1; }
   echo "    installed: $(ls "$FONT_DIR"/Vazirmatn-*.ttf | xargs -n1 basename | tr '\n' ' ')"
 fi
 
