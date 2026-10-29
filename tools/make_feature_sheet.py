@@ -16,7 +16,10 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
 
 from PIL import Image, ImageDraw, ImageFont
 from arabic_reshaper import reshape as fa_reshape
@@ -183,32 +186,43 @@ def run_tool(root: Path, args, ok_token: str):
         return 0
 
 
-def collect_stats(root: Path):
+def ea_text(root: Path) -> str:
     ea = root / "MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5"
-    lines = inputs = 0
-    if ea.exists():
-        src = ea.read_text(encoding="utf-8").splitlines()
-        lines = len(src)
-        inputs = sum(1 for l in src if l.startswith("input ") and " input group" not in l)
-    presets = len(list((root / "MQL5/Presets").glob("*.set"))) if (root / "MQL5/Presets").exists() else 0
+    return ea.read_text(encoding="utf-8") if ea.exists() else ""
+
+
+def ea_version(root: Path) -> str:
+    m = re.search(r'#property\s+version\s+"([^"]+)"', ea_text(root))
+    return m.group(1) if m else "?"
+
+
+def collect_stats(root: Path):
+    """Every number on the sheet is measured from the repo, never typed by hand."""
+    src = ea_text(root).splitlines()
+    lines = len(src)
+    inputs = sum(1 for l in src if l.startswith("input ") and " input group" not in l)
+    groups = sum(1 for l in src if re.match(r"\s*input\s+group\b", l))
     checks = run_tool(root, ["tools/gold_pip_calc.py", "--test"], None)
-    lint = run_tool(root, ["tools/mql5_lint.py", "MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5"], "clean")
+    lint = run_tool(root, ["tools/mql5_lint.py",
+                           "MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5"], "clean")
     return [(persian_digits(lines), "خط کد MQL5"),
             (persian_digits(inputs), "ورودی تنظیمی"),
             (f"{persian_digits(checks)}/{persian_digits(checks)}", "بررسی منطقی پاس"),
-            (persian_digits(presets), "پیش‌تنظیم طلا"),
+            (persian_digits(groups), "گروه تنظیمی"),
             (persian_digits(lint), "خطای لینت")]
 
 
 STATS = []
 
 STEPS = [("۱", "نصب", "mq5 را در پوشهٔ Experts بگذار، F7"),
-         ("۲", "پیش‌تنظیم", "یکی از چهار فایل .set را Load کن"),
+         ("۲", "اتصال", "بدون Load کردن هیچ فایلی؛ پیپ و نوع حساب خودش تشخیص داده می‌شود"),
          ("۳", "اعمال گروهی", "دکمهٔ APPLY TP+SL یا کلید 1"),
          ("۴", "خودکار", "ریسک‌فری، تریلینگ، گارد اخبار، breaker")]
 
-BADGE_ROWS = [[("نسخه 1.10", GOLD), ("MetaTrader 5", BLUE), ("طلا / XAUUSD", GREEN)],
-           [("حساب سنتی و دلاری", ORANGE), ("تک‌فایل، بدون وابستگی", CYAN)]]
+def badge_rows(version: str = ""):
+    v = f"نسخه {version}" if version else "نسخه"
+    return [[(v, GOLD), ("MetaTrader 5", BLUE), ("طلا / XAUUSD", GREEN)],
+            [("حساب سنتی و دلاری", ORANGE), ("تک‌فایل، بدون پیش‌تنظیم", CYAN)]]
 
 
 # --------------------------------------------------------------------- drawing
@@ -301,7 +315,8 @@ def measure_cards(sheet: Sheet, cards, cw, gap, lead):
 
 def build(out_path: Path, font_dir: str) -> None:
     global STATS
-    STATS = collect_stats(Path(__file__).resolve().parent.parent)
+    STATS = collect_stats(ROOT)
+    version = ea_version(ROOT)
     f = Fonts(font_dir)
     probe = Sheet(f, 10)                                # used only for text metrics
     gap = 22 * S
@@ -333,7 +348,7 @@ def build(out_path: Path, font_dir: str) -> None:
     y = sh.rtl_block("اکسپرت متاتریدر ۵ برای طلا (XAUUSD): حد سود و حد ضرر گروهی، ریسک‌فری خودکار، "
                      "گارد اخبار قرمز و مدیریت سرمایهٔ کامل",
                      W - PAD, y, sh.h2, DIM, 1180 * S) + 20 * S
-    rows = BADGE_ROWS                                 # one pill row per entry
+    rows = badge_rows(version)        # one pill row per entry; version read from the EA
     for r_i, r in enumerate(rows):
         right = W - PAD                                 # walk right-to-left
         for label, col in r:
@@ -422,10 +437,11 @@ def build(out_path: Path, font_dir: str) -> None:
             d.line([PAD + stw * i, y + 22 * S, PAD + stw * i, y + stats_h - 22 * S], fill=(46, 58, 80), width=S)
     y += stats_h + 32 * S
 
-    d.text((W - PAD, y), fa("فایل‌ها:  MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5 · MQL5/Presets · "
-                           "docs/GoldBasketGuard-parameters.md"), font=sh.small, fill=(124, 138, 160), anchor="ra")
+    d.text((W - PAD, y), fa("فایل‌ها:  MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5 · "
+                           "docs/GoldBasketGuard-parameters.md · release/GoldBasketGuard/"),
+           font=sh.small, fill=(124, 138, 160), anchor="ra")
     y += 34 * S
-    d.text((W - PAD, y), fa("اول روی دمو و با پیش‌تنظیم DryRun تست شود. این ابزار توصیهٔ معاملاتی نیست."),
+    d.text((W - PAD, y), fa("اول روی دمو تست شود (برای تماشا: InpDryRun=true). این ابزار توصیهٔ معاملاتی نیست."),
            font=sh.small, fill=(110, 122, 142), anchor="ra")
     d.text((PAD, y + 2 * S), "my-new-trading-system", font=sh.mono_s, fill=(86, 98, 118), anchor="la")
 

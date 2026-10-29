@@ -9,11 +9,11 @@ on every tick, and where the protective levels end up". Three blocks:
   C. the account-level ceilings           (gauge, from the same numbers)
 
 All figures are read from the EA's input defaults, overlaid with the chosen
-preset, and block B replays the real risk-free / step-trailing rules -- so the
+the EA's own input defaults, and block B replays the real risk-free / trailing rules
 picture cannot quietly drift away from the code.
 
     python3 tools/make_flow_sheet.py --out docs/GoldBasketGuard-flow-fa.png
-    python3 tools/make_flow_sheet.py --preset GoldBasketGuard_Grid_Basket
+    python3 tools/make_flow_sheet.py --out docs/GoldBasketGuard-flow-fa.png
 
 Needs: pillow, arabic-reshaper, python-bidi, Vazirmatn TTFs (same as the sheet).
 """
@@ -36,7 +36,6 @@ GOLD, TEXT, DIM = M.GOLD, M.TEXT, M.DIM
 GREEN, RED, BLUE, ORANGE, CYAN = M.GREEN, M.RED, M.BLUE, M.ORANGE, M.CYAN
 ROOT = Path(__file__).resolve().parent.parent
 EA = ROOT / "MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5"
-PRESET_DIR = ROOT / "MQL5/Presets"
 ENTRY = 2641.25                                  # basket average entry of the sample path
 NUM = r"-?\d+(?:\.\d+)?"
 
@@ -56,14 +55,9 @@ def ea_inputs() -> dict:
     return out
 
 
-def load_config(preset: str) -> dict:
-    cfg = ea_inputs()
-    for ln in (PRESET_DIR / f"{preset}.set").read_text(encoding="utf-8").splitlines():
-        ln = ln.strip()
-        if ln and not ln.startswith(";") and "=" in ln:
-            k, v = ln.split("=", 1)
-            cfg[k.strip()] = v.strip().rstrip(";").strip().strip('"')
-    return cfg
+def load_config() -> dict:
+    """The EA's defaults ARE the configuration -- nothing to load on top."""
+    return ea_inputs()
 
 
 def enum_name(cfg: dict, enum: str, key: str) -> str:
@@ -90,7 +84,7 @@ def pnum(v: float) -> str:
 
 # --------------------------------------------------------------------- block A
 def pipeline(cfg: dict) -> list:
-    """Order of operations inside Manage(), with this preset's own numbers."""
+    """Order of operations inside Manage(), with the defaults shipped in the file."""
     sl, tp = fnum(cfg, "InpSLPips", 300), fnum(cfg, "InpTPPips", 500)
     be, arm, lock = enum_name(cfg, "ENUM_BE_MODE", "InpBeMode"), fnum(cfg, "InpBeTriggerPips", 200), fnum(cfg, "InpBeLockPips", 10)
     trail = enum_name(cfg, "ENUM_TRAIL_MODE", "InpTrailMode")
@@ -207,8 +201,8 @@ def width_of(i: int, steps: list, cw: int, gap: int) -> int:
 
 # ---------------------------------------------------------------------- render
 class Flow:
-    def __init__(self, sh: M.Sheet, cfg: dict, preset: str):
-        self.sh, self.d, self.cfg, self.preset = sh, sh.d, sh.h2 and sh, preset
+    def __init__(self, sh: M.Sheet, cfg: dict):
+        self.sh, self.d, self.cfg = sh, sh.d, cfg
         self.d = sh.d
         self.y = PAD
 
@@ -230,8 +224,8 @@ class Flow:
         d.text((W - PAD - tw - 24 * S, self.y + 32 * S), "GoldBasketGuard · runtime flow",
                font=self.sh.f.get("Vazirmatn-Medium.ttf", 24 * S), fill=GOLD, anchor="rm")
         self.y += 76 * S
-        sub = (f"اعداد از پیش‌تنظیم {self.preset} و مقادیر پیش‌فرض خود اکسپرت خوانده شده‌اند؛ "
-               "پلکان سود با همان قوانین ریسک‌فری و تریلینگ شبیه‌سازی شده است")
+        sub = ("همهٔ اعداد از مقادیر پیش‌فرض خودِ فایل اکسپرت خوانده می‌شوند — هیچ فایل "
+               "پیش‌تنظیمی لازم نیست؛ پلکان سود هم با همان قوانین ریسک‌فری و تریلینگ شبیه‌سازی شده است")
         for ln in M.wrap_lines(d, sub, self.sh.h2, 1240 * S):
             d.text((W - PAD, self.y), ln, font=self.sh.h2, fill=DIM, anchor="ra")
             self.y += int(25 * S * 1.5)
@@ -399,7 +393,7 @@ class Flow:
             gy += 4 * S
         self.y += h + 34 * S
 
-    def footer(self, preset: str):
+    def footer(self):
         d = self.d
         d.line([PAD, self.y, W - PAD, self.y], fill=(40, 52, 72), width=S)
         self.y += 22 * S
@@ -410,15 +404,15 @@ class Flow:
         d.text((W - PAD, self.y), self.fa("بازسازی این تصویر:"), font=self.sh.small,
                fill=(96, 108, 128), anchor="ra")
         d.text((W - PAD - int(d.textlength(self.fa("بازسازی این تصویر:"), font=self.sh.small)) - 16 * S, self.y),
-               f"python3 tools/make_flow_sheet.py --preset {preset}", font=self.sh.mono_s,
+               "python3 tools/make_flow_sheet.py", font=self.sh.mono_s,
                fill=(110, 124, 146), anchor="rm")
         self.y += 46 * S
 
 
-def render(cfg: dict, preset: str, fonts: M.Fonts):
+def render(cfg: dict, fonts: M.Fonts):
     """One measuring pass on a tall canvas, then draw at the exact height."""
     probe = M.Sheet(fonts, 6000 * S)
-    f = Flow(probe, cfg, preset)
+    f = Flow(probe, cfg)
     steps = pipeline(cfg)
     prof, slp, events = simulate(cfg)
     gap = 20 * S
@@ -437,19 +431,17 @@ def render(cfg: dict, preset: str, fonts: M.Fonts):
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", default="docs/GoldBasketGuard-flow-fa.png")
-    ap.add_argument("--preset", default="GoldBasketGuard_XAUUSD_2digits")
     ap.add_argument("--font-dir", default=str(M.font_dir_default()))
     a = ap.parse_args()
-    if not (PRESET_DIR / f"{a.preset}.set").exists():
-        print(f"no such preset: {a.preset}.set (expected in MQL5/Presets)", file=sys.stderr)
+    cfg = load_config()
+    if not cfg:
+        print("cannot read the EA file — run this from the repo root", file=sys.stderr)
         return 2
-
-    cfg = load_config(a.preset)
     fonts = M.Fonts(a.font_dir)
-    box_h, cw, gap, total, steps, (prof, slp, events) = render(cfg, a.preset, fonts)
+    box_h, cw, gap, total, steps, (prof, slp, events) = render(cfg, fonts)
 
     sh = M.Sheet(fonts, int(total))
-    f = Flow(sh, cfg, a.preset)
+    f = Flow(sh, cfg)
     f.header()
     f.section("گام‌به‌گام: از تیک تا ارسال دستور")
     f.pipeline_box(steps, box_h, cw, gap)
@@ -457,7 +449,7 @@ def main() -> int:
     f.ladder(chart_height(cfg), prof, slp, events, cfg)
     f.section("سقف‌های محافظت روی حساب")
     f.gauge(210 * S + len(ceilings(cfg)) * 36 * S + 130 * S, cfg)
-    f.footer(a.preset)
+    f.footer()
 
     img = sh.img.crop((0, 0, W, min(int(total), f.y)))
     img = img.resize((W // S, img.size[1] // S), Image.LANCZOS)
@@ -465,7 +457,7 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     img.save(out, optimize=True)
     print(f"wrote {out}  {img.size[0]}x{img.size[1]}  ({out.stat().st_size // 1024} KB)  "
-          f"preset={a.preset} steps={len(steps)} events={len(events)}")
+          f"steps={len(steps)} events={len(events)} config=EA defaults")
     return 0
 
 
