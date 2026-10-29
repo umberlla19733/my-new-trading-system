@@ -1639,7 +1639,7 @@ void PanelUpdate()
    if(g_basket.avg_buy > 0)
       s[1] = StringFormat("avg BUY  %s   %+.1f pips", DoubleToString(g_basket.avg_buy,g_digits), g_basket.gain_pips_buy);
    else
-      s[1] = StringFormat("avg BUY  -");
+      s[1] = "avg BUY  -";
    if(g_basket.avg_sell > 0)
       s[2] = StringFormat("avg SELL %s   %+.1f pips", DoubleToString(g_basket.avg_sell,g_digits), g_basket.gain_pips_sell);
    else
