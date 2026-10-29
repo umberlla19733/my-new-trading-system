@@ -76,6 +76,9 @@ DEFAULTS_CONTRACT = [
     ("InpEmergencyLockHours", "24", "EA stays locked after an emergency"),
     ("InpAdaptiveStops", "true", "widens the guard when the broker rejects"),
     ("InpDryRun", "false", "live by default (demo is the user's choice)"),
+    ("InpPersistPanel", "true", "panel switches and typed values survive a reattach, per account + symbol"),
+    ("InpCloseStepPct", "50.0", "the CLOSE PART button takes half of the group by default"),
+    ("InpShowSwitchesFirst", "false", "the panel opens on the monitor page, the switches are one key away"),
 ]
 
 
@@ -211,6 +214,44 @@ def verify(g: Gate, version: str) -> dict:
     g.check(f"zero-config contract ({len(DEFAULTS_CONTRACT)} defaults)", not off,
             "; ".join(off[:3]) or "attach with no changes = gold setup, all guards armed")
     stats["contract"] = len(DEFAULTS_CONTRACT)
+
+    # --- v1.14: the panel switches must really be wired to the features ---------
+    sw_enum = re.search(r"enum ENUM_SWITCH.*?\n  \{(.*?)\n  \};", text, re.S)
+    names = re.findall(r"SW_(\w+)\s*=\s*(\d+)", sw_enum.group(1)) if sw_enum else []
+    bad: list[str] = []
+    for nm, _ in names:
+        body = text.count(f"SwWrite(SW_{nm}")
+        gate = len(re.findall(r"return \([^)]*SwOn\(SW_" + nm + r"\)", text)) + text.count(f"return SwOn(SW_{nm});")
+        if body < 1:
+            bad.append(f"SW_{nm}: no default taken from the Inputs")
+        if gate < 1:
+            bad.append(f"SW_{nm}: not read by any gate function")
+    g.check(f"panel switches wired to gates ({len(names)} switches)", bool(names) and not bad,
+            "; ".join(bad[:3]) or "every switch has an input default and is read by a Use*() gate")
+    stats["switches"] = len(names)
+
+    # an order site may not consult the raw input any more - it must ask DryOn()
+    dry_ok = {"DryOn", "SwInitDefaults", "SwClicked", "SwTip"}
+    dry_bad, cur_fn = [], None
+    for ln in text.splitlines():
+        m0 = re.match(r"^(?:bool|void|int|double|string|long|datetime)\s+(\w+)\s*\(", ln)
+        if m0:
+            cur_fn = m0.group(1)
+        elif re.match(r"^\s*input\b", ln):
+            cur_fn = None
+        if "InpDryRun" in ln and cur_fn is not None and cur_fn not in dry_ok:
+            dry_bad.append(cur_fn)
+    g.check("dry run goes through one gate", not dry_bad,
+            ", ".join(sorted(set(dry_bad))[:3]) + " still reads InpDryRun" if dry_bad
+            else "only DryOn(), the defaults and the panel text read InpDryRun")
+
+    # money entry and the second-click arms must stay per button
+    g.check("money entry on the panel", "MoneyFieldToPips(\"SLM\"".replace('\"', '"') in text
+            and "MoneyFieldToPips(\"TPM\"".replace('\"', '"') in text,
+            "SL money and TP money boxes convert through GroupMoneyPerPip()")
+    arms = len(re.findall(r"datetime g_arm_\w+", text))
+    g.check("every close button arms on its own", arms >= 4, f"{arms} arm timers")
+    g.check("partial close from the panel", "ClosePartialGroup(PartPct()" in text, "CLOSE PART uses the percent field")
 
     # no preset folder may come back without the gate knowing about it
     stray = sorted(p.name for p in (ROOT / "MQL5/Presets").glob("*.set")) if (ROOT / "MQL5/Presets").exists() else []
