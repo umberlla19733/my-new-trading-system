@@ -3,6 +3,13 @@
 اکسپرت **GoldBasketGuard** برای متاتریدر ۵ — مدیریت **گروهی** حد سود و حد ضرر + **ریسک‌فری (سربه‌سر) خودکار**، طراحی‌شده برای **طلا (XAUUSD)**.
 
 فایل اصلی: [`MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5`](MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5)
+نسخهٔ نهایی (فایل اکسپرت + پیش‌تنظیم‌ها + مستندات، آمادهٔ دانلود): [`release/GoldBasketGuard/`](release/GoldBasketGuard/)
+
+### نقشهٔ کامل قابلیت‌ها در یک تصویر
+
+![قابلیت‌های GoldBasketGuard](docs/GoldBasketGuard-features-fa.png)
+
+(همین تصویر با `python3 tools/make_feature_sheet.py` ساخته می‌شود — متن واقعی، بدون تصویرسازی هوش مصنوعی.)
 
 ---
 
@@ -221,7 +228,15 @@ live | dry-run off | calendar ok
 ```bash
 python3 tools/mql5_lint.py MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   # بررسی ساختار فایل
 python3 tools/gold_pip_calc.py --test                                          # 60 بررسی منطقی
+python3 tools/make_feature_sheet.py                                            # ساخت تصویر قابلیت‌ها
+python3 tools/make_release.py --check-only                                     # ۱۳ بررسی قبل از انتشار
+python3 tools/make_release.py                                                  # ساخت release/GoldBasketGuard + zip
 ```
+
+پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۱۳ بررسی پاس باشد**
+(لینت، تست منطق، تک‌فایل بودن، یونی‌کد نبودن، توازن آکولاد، یکتا بودن ورودی‌ها،
+و معتبر بودن کلید/مقدار هر ۴ فایل `.set` نسبت به نوع اعلام‌شده). در `manifest.txt`
+هم checksum هر فایل و هم لیست بررسی‌های پاس‌شده ثبت می‌شود.
 
 ---
 
@@ -229,10 +244,15 @@ python3 tools/gold_pip_calc.py --test                                          #
 
 ```
 MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   اکسپرت (تک‌فایل، بدون وابستگی)
+release/GoldBasketGuard/                           نسخهٔ نهایی + manifest + راهنمای نصب
+release/GoldBasketGuard-v1.10.zip                  همان پوشه، آمادهٔ دانلود
 MQL5/Presets/*.set                                 تنظیمات آماده برای طلا
 docs/GoldBasketGuard-parameters.md                 توضیح تک‌تک ورودی‌ها (فارسی)
+docs/GoldBasketGuard-features-fa.png               نقشهٔ گرافیکی قابلیت‌ها (فارسی)
 tools/mql5_lint.py                                 لینت سبک MQL5
 tools/gold_pip_calc.py                             مبدل پیپ + تست منطق اکسپرت (۶۰ بررسی)
+tools/make_feature_sheet.py                        مولد تصویر قابلیت‌ها (Pillow + Vazirmatn)
+tools/make_release.py                              دروازهٔ انتشار و ساخت پوشهٔ release
 ```
 
 **سلب مسئولیت:** نرم‌افزار آموزشی/کمکی است و توصیهٔ سرمایه‌گذاری نیست. مسئولیت هر معامله با خود کاربر است.
@@ -241,10 +261,14 @@ tools/gold_pip_calc.py                             مبدل پیپ + تست من
 
 ## English summary
 
-A single-file MT5 expert advisor that manages a **group (basket) of open positions**:
+A single-file MT5 expert advisor that manages a **group (basket) of open positions** on gold (XAUUSD).
+The release-ready copy of the EA, the four presets, the Persian parameter reference and this feature sheet live in [`release/GoldBasketGuard/`](release/GoldBasketGuard/).
 
 - one distance entered once → **SL/TP applied to every ticket** of the group (`APPLY_SAME_LEVEL` = identical price level for all tickets, `APPLY_PER_TICKET` = identical distance from each entry);
 - **mirroring**: change the SL or TP of *one* ticket by hand and the EA copies that level to the whole group (including removal);
 - **automatic risk-free**: after N pips of profit (default 200 pips = $20 on gold) all stop-losses move to entry + lock, then optional step-trailing locks profit;
+- **red-folder news guard**: the built-in MT5 economic calendar (no WebRequest, no external service) — before a HIGH-impact USD event the group is taken to risk-free and then closed (group or whole account), automation paused until the event passes; manual windows can be typed in for brokers without calendar access or for the Strategy Tester;
+- professional money management: SL distance derived from the % of balance you allow per basket, TP as an R multiple, daily loss limit and daily profit target, drawdown-from-peak guard, and a **50% of account at risk → close everything + lock the EA** breaker;
+- **cent or dollar account detected automatically** (account currency `USD`/`EUR`/… vs `USC`/`Euro Cent`/…), all money inputs converted, so one file works on every broker;
 - optional basket money take/stop, kill-switch on % of equity, partial volume reduction, chart panel with editable fields, buttons and hotkeys;
 - broker-aware: stops/freeze levels, deviation, per-ticket cool-down, rate limiting, retries, dry-run mode, hedging vs netting detection.
