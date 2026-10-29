@@ -65,13 +65,14 @@ DEFAULTS_CONTRACT = [
     ("InpNewsEnabled", "true", "red-folder news guard on"),
     ("InpNewsImportance", "CALENDAR_IMPORTANCE_HIGH", "only HIGH impact events"),
     ("InpNewsCurrencies", "", "currency derived from the symbol"),
-    ("InpNewsAction", "NEWS_CLOSE_GROUP", "closes the group inside the window"),
-    ("InpNewsPauseAutomation", "true", "no level edits during the window"),
-    ("InpEnableKillSwitch", "true", "equity guard on by default"),
-    ("InpMaxDrawdownPctEquity", "12.0", "kill switch at 12% of equity"),
-    ("InpCloseAllOnKill", "true", "kill switch closes, not just pauses"),
-    ("InpEmergencyFloatLossPct", "50", "breaker at 50% of balance at risk"),
-    ("InpEmergencyMarginLevelPct", "150", "breaker below 150% margin level"),
+    ("InpNewsAction", "NEWS_WARN", "red-folder news warns - by default it closes nothing"),
+    ("InpNewsPauseAutomation", "false", "mirroring / risk-free keep running inside a news window"),
+    ("InpEnableKillSwitch", "false", "no close-all on group drawdown - only the account breaker closes"),
+    ("InpMaxDrawdownPctEquity", "60.0", "if that switch is armed, it sits on the same 60% line"),
+    ("InpCloseAllOnKill", "true", "and when armed it closes, not just pauses"),
+    ("InpRiskWarnPct", "40.0", "40% of the balance in floating loss = warning only, no orders"),
+    ("InpEmergencyFloatLossPct", "60", "close all only when 60% of the account is at risk"),
+    ("InpEmergencyMarginLevelPct", "0", "margin level never forces a close by default"),
     ("InpEmergencyLockHours", "24", "EA stays locked after an emergency"),
     ("InpAdaptiveStops", "true", "widens the guard when the broker rejects"),
     ("InpDryRun", "false", "live by default (demo is the user's choice)"),
@@ -272,6 +273,17 @@ def write_release(version: str, stats: dict, g: Gate, do_zip: bool) -> Path:
   همان سطحی را که **خودش درخواست کرده** نادیده می‌گیرد، پس تغییر دستی شما گم نمی‌شود
 - `InpMaxModsPerSecond=25` و `InpMinMsPerTicket=0`: یک سبد کامل در یک چرخه صاف می‌شود
 - خط آخر پنل مدت واقعی هر چرخه را نشان می‌دهد: `cycle 1 ms (max 9 ms)`
+
+### سیاست بستن (پیش‌فرض از نسخهٔ {version})
+
+- **تنها بستن خودکار:** ضرر شناور **کل حساب** ≥ **۶۰٪ موجودی** → بستنِ همه + قفل اکسپرت
+  (`InpEmergencyFloatLossPct=60`، قفل تا `InpEmergencyLockHours=24` ساعت، `UNLOCK` یا کلید `7` برای باز کردن)
+- **از ۴۰٪ فقط هشدار:** `Alert` + پوش + خط زرد پنل و `float -NN% bal`؛ هیچ دستوری فرستاده نمی‌شود
+  (`InpRiskWarnPct=40`)
+- kill-switch روی درصد equity: **خاموش** (`InpEnableKillSwitch=false`)؛ اگر روشنش کنید آستانه‌اش روی همان ۶۰٪ است
+- بستن بر اساس margin level، free margin و افت equity از سقف: **خاموش** (`0`)
+- گارد اخبار: **فقط هشدار** (`InpNewsAction=NEWS_WARN`)؛ برای بستن قبل از خبر قرمز `NEWS_CLOSE_GROUP` را انتخاب کنید
+- حد ضرر/حد سود گروهی، ریسک‌فری و تریلینگ مثل قبل کار می‌کنند؛ `CLOSE ALL` و `CLOSE LOSERS` فقط با دو کلیک پشت سر هم
 
 قصد معاملاتی (فاصلهٔ حد ضرر/حد سود، آستانهٔ ریسک‌فری، «کدام معاملات گروه من است»)
 تشخیص‌دادنی نیست؛ همان‌ها در پنل روی چارت یا تب Inputs تایپ می‌شوند.

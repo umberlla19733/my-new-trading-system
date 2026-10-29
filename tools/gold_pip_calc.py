@@ -237,6 +237,15 @@ def emergency_hit(balance: float, equity: float, margin_level: float, free_margi
     return ""
 
 
+def risk_warn(balance: float, equity: float, warn_pct: float) -> tuple[float, bool]:
+    """Mirror of RiskWarning(): how much of the balance is in floating loss, and whether
+    that deserves the warning. Read-only - it never decides to close anything."""
+    if balance <= 0.0 or warn_pct <= 0.0:
+        return 0.0, False
+    pct = max(0.0, (balance - equity) / balance * 100.0)
+    return pct, pct >= warn_pct
+
+
 def in_manual_window(minutes_now: int, dow_now: int, windows: str) -> bool:
     """'HH:MM-HH:MM' (all days) or 'DOW-HH:MM-HH:MM' (0=Sunday), server time."""
     for raw in (windows or "").split(";"):
@@ -444,9 +453,17 @@ def run_tests() -> int:
     check("ACCOUNT_CCY never converts", money_factor(True, "ACCOUNT_CCY") == 1.0)
     check("REAL_USD forces x100", money_factor(False, "REAL_USD") == 100.0)
 
-    # 10) the "50% of the account is at risk" breaker
-    check("50% floating loss trips", "floating loss" in emergency_hit(2000, 1000, 200, 500, 50, 150, 0))
-    check("25% floating loss does not trip", emergency_hit(2000, 1500, 200, 500, 50, 0, 0) == "")
+    # 10) the "60% of the account is at risk" breaker (the only automatic close-all)
+    check("60% floating loss trips", "floating loss" in emergency_hit(2000, 800, 200, 500, 60, 0, 0))
+    check("59% floating loss does not trip", emergency_hit(2000, 820, 200, 500, 60, 0, 0) == "")
+    check("margin level is off in the default policy", emergency_hit(2000, 1900, 100, 100, 60, 0, 0) == "")
+    check("margin level still works when armed", "margin level" in emergency_hit(2000, 1900, 140, 100, 60, 150, 0))
+    # the 40% warning is loud but harmless: it never closes
+    check("warn at 40% of balance", risk_warn(2000, 1200, 40)[1] and abs(risk_warn(2000, 1200, 40)[0] - 40.0) < 1e-9)
+    check("warn silent at 39%", not risk_warn(2000, 1210, 40)[1])
+    check("warn does not close: 40% is below the 60% line", emergency_hit(2000, 1200, 0, 0, 60, 0, 0) == "")
+    check("percentages are cent-account neutral", risk_warn(200000, 120000, 40) == risk_warn(2000, 1200, 40))
+    check("warn off = no readout at all", risk_warn(2000, 100, 0) == (0.0, False))
     check("margin level trips", "margin level" in emergency_hit(2000, 1900, 140, 100, 0, 150, 0))
     check("free margin trips", "free margin" in emergency_hit(2000, 1900, 0, 50, 0, 0, 10))
     check("peak drawdown trips", "drawdown" in emergency_hit(2000, 1900, 0, 0, 0, 0, 0, peak_equity=4000, dd_pct=50))
@@ -514,7 +531,7 @@ def run_tests() -> int:
         for f in fails:
             print("  - " + f)
         return 1
-    print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror + echo guard, risk-free, trail, limits, sizing, cent, breaker, news)"
+    print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror + echo guard, risk-free, trail, limits, sizing, cent, 60%% breaker, 40%% warning, news)"
           % (passed[0], passed[0] + len(fails)))
     return 0
 

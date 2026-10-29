@@ -20,6 +20,7 @@ Needs: pillow, arabic-reshaper, python-bidi, Vazirmatn TTFs (same as the sheet).
 from __future__ import annotations
 
 import argparse
+import math
 import re
 import sys
 from pathlib import Path
@@ -186,9 +187,13 @@ def ceilings(cfg: dict) -> list:
     dl = fnum(cfg, "InpDailyLossLimitPct")
     if dl:
         rows.append((dl, "٪ — حد ضرر روزانه؛ توقف تا نیمه‌شب وقت سرور", CYAN))
+    warn = fnum(cfg, "InpRiskWarnPct")
+    if warn:
+        rows.append((warn, "٪  ·  هشدار ریسک (Alert و پوش)؛ هیچ دستوری فرستاده نمی‌شود", CYAN))
     fl = fnum(cfg, "InpEmergencyFloatLossPct")
     if fl:
         rows.append((fl, "٪  ·  زیان شناور کل حساب؛ بستن همه و قفل اکسپرت", RED))
+    rows.sort(key=lambda r: r[0])
     return rows
 
 
@@ -349,7 +354,8 @@ class Flow:
                              outline=(40, 52, 72), width=S)
         bar0, bar1 = PAD + 40 * S, W - PAD - 40 * S
         by = self.y + 76 * S
-        vmax = 60.0
+        top = max([v for v, _, _ in ceilings(cfg)] + [20.0])
+        vmax = 20.0 * math.ceil((top + 10.0) / 20.0)          # a little air past the last line
         bh_px, bw_px = int(22 * S), int(bar1 - bar0)                          # risk gradient
         grad = Image.new("RGB", (bw_px, bh_px))
         gd = ImageDraw.Draw(grad)
@@ -362,7 +368,7 @@ class Flow:
         self.sh.img.paste(grad, (int(bar0), int(by)), mask)
         d.text((W - PAD - 40 * S, self.y + 30 * S), self.fa("چند درصد از موجودی الان در خطر است؟"),
                font=self.sh.h3, fill=GOLD, anchor="ra")
-        for p in (0, 20, 40, 60):
+        for p in range(0, int(vmax) + 1, max(1, int(vmax / 4))):
             x = bar0 + (bar1 - bar0) * p / vmax
             d.line([x, by + 26 * S, x, by + 34 * S], fill=(86, 98, 118), width=S)
             d.text((x, by + 42 * S), self.fa(pnum(p) + "٪"), font=self.sh.small, fill=(122, 134, 154), anchor="ma")
@@ -381,7 +387,12 @@ class Flow:
         if flag(cfg, "InpEmergencyStepDown"):
             notes.append("اول فقط بدترین تیکت بسته می‌شود؛ اگر مارجین بحرانی بود همه یکجا")
         if flag(cfg, "InpNewsEnabled"):
-            notes.append(f"گارد اخبار مستقل از این سقف‌ها کار می‌کند: {pnum(fnum(cfg, 'InpNewsBeforeMin', 20))} دقیقه قبل از رویداد قرمز")
+            act = enum_name(cfg, "ENUM_NEWS_ACTION", "InpNewsAction")
+            closes = "CLOSE" in act
+            notes.append("گارد اخبار: " + (
+                f"{pnum(fnum(cfg, 'InpNewsBeforeMin', 20))} دقیقه قبل از رویداد قرمز، واکنش {act} - بستن دارد"
+                if closes else
+                f"{pnum(fnum(cfg, 'InpNewsBeforeMin', 20))} دقیقه قبل از رویداد قرمز، واکنش {act} - فقط هشدار، بستن ندارد"))
         div = fnum(cfg, "InpCentDivisor", 100)
         notes.append(f"روی حساب سنتی، اعداد پولی خودکار بر {pnum(div)} تقسیم می‌شوند؛ "
                      "درصدها بدون تغییرند")
