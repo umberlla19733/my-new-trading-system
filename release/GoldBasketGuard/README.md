@@ -1,4 +1,4 @@
-# GoldBasketGuard v1.16 — release folder
+# GoldBasketGuard v1.17 — release folder
 
 این پوشه نسخهٔ نهایی و بررسی‌شدهٔ اکسپرت است. **هیچ فایل پیش‌تنظیمی لازم نیست**:
 همه‌چیز در خود فایل ساخته شده و مقداردهیِ پیش‌فرض برای طلا تنظیم شده است.
@@ -7,7 +7,7 @@
 
 | file | what it is |
 |---|---|
-| `GoldBasketGuard.mq5` | the EA — 3750 lines, 110 inputs, 10 input groups |
+| `GoldBasketGuard.mq5` | the EA — 3327 lines, 108 inputs, 10 input groups |
 | `GoldBasketGuard-parameters.md` | every parameter, Persian reference |
 | `GoldBasketGuard-features-fa.png` | one-image feature sheet (Persian) |
 | `GoldBasketGuard-flow-fa.png` | how the risk engine behaves, tick by tick |
@@ -31,7 +31,7 @@
 - نوع fill مجاز نماد، محدودیت نرخ ارسال دستور، و حضور/عدم حضور تقویم اقتصادی
 - ارز خبر از نام نماد (XAU/GOLD → USD)؛ اگر تقویم در دسترس نبود، پنجرهٔ دستی `InpNewsManualWindows`
 
-### سرعت واکنش (v1.16)
+### سرعت واکنش (v1.17)
 
 - حلقهٔ مدیریت هر `InpTimerMs=100` میلی‌ثانیه اجرا می‌شود (۱۰ چرخه در ثانیه)، نه هر ۱ ثانیه
 - `InpInstantMirror=true`: کشیدن SL/TP روی یک معامله **داخل همان رویداد معامله** به بقیهٔ گروه
@@ -41,7 +41,7 @@
 - `InpMaxModsPerSecond=25` و `InpMinMsPerTicket=0`: یک سبد کامل در یک چرخه صاف می‌شود
 - خط آخر پنل مدت واقعی هر چرخه را نشان می‌دهد: `cycle 1 ms (max 9 ms)`
 
-### سیاست بستن (پیش‌فرض از نسخهٔ 1.16)
+### سیاست بستن (پیش‌فرض از نسخهٔ 1.17)
 
 - **تنها بستن خودکار:** ضرر شناور **کل حساب** ≥ **۶۰٪ موجودی** → بستنِ همه + قفل اکسپرت
   (`InpEmergencyFloatLossPct=60`، قفل تا `InpEmergencyLockHours=24` ساعت، `UNLOCK` یا کلید `7` برای باز کردن)
@@ -65,21 +65,26 @@
 - no tab characters
 - no CRLF line endings
 - no TODO / FIXME / XXX left
-- version property — found 1.16, expected 1.16
-- braces balanced — 369 open / 369 close
-- parens balanced — 2111 open / 2111 close
+- version property — found 1.17, expected 1.17
+- braces balanced — 311 open / 311 close
+- parens balanced — 1755 open / 1755 close
 - input names unique
-- input count sane — 110 inputs
+- input count sane — 108 inputs
 - static lint clean —    clean: blocks balanced, no obvious syntax/API problems
 - logic mirror tests — 138/138 checks passed
-- zero-config contract (44 defaults) — attach with no changes = gold setup, all guards armed
-- panel switches wired to gates (12 switches) — every switch has an input default and is read by a Use*() gate
-- dry run goes through one gate — only DryOn(), the defaults and the panel text read InpDryRun
-- money entry on the panel — SL money and TP money boxes convert through GroupMoneyPerPip()
-- every close button arms on its own — 4 arm timers
-- partial close from the panel — CLOSE PART uses the percent field
-- cycle cost budget (a cycle with a group on it) — RunCycle() with 5 ticket(s): 202 terminal calls on the quiet path [39 object writes, 3 redraws, 7 position reads]
-- cycle cost budget (an idle cycle) — RunCycle() with 0 ticket(s): 127 terminal calls on the quiet path [39 object writes, 3 redraws, 2 position reads]
+- zero-config contract (43 defaults) — attach with no changes = gold setup, all guards armed
+- the panel carries four buttons and no more — APPLY PAUSE UNLOCK CLOSEALL
+- two numbers on the panel, no more — 2 editable fields
+- the panel is one small card — 8 lines
+- no page of toggles came back — the Inputs decide what runs; the chart only reports and overrides
+- automation is on by default — levels are glued from the first cycle, so APPLY is only an emergency override
+- every click runs a cycle at once — the panel shows the result of the click, not of the next tick
+- only the destructive click asks twice — CLOSE ALL arms on the ms clock: TimeCurrent() stands still when the market does
+- each armed action has its own timer — 2 arm timers
+- closing is still one call, no loop of sleeps — one attempt per cycle per ticket
+- dry run goes through one gate — only DryOn() and the input itself read InpDryRun
+- cycle cost budget (a cycle with a group on it) — RunCycle() with 5 ticket(s): 149 terminal calls on the quiet path [15 object writes, 1 redraws, 7 position reads]
+- cycle cost budget (an idle cycle) — RunCycle() with 0 ticket(s): 74 terminal calls on the quiet path [15 object writes, 1 redraws, 2 position reads]
 - panel paints only what changed — a quiet chart must not touch a single chart object
 - panel rows are cached in front of the chart — RowSet() compares before it calls OLabel()
 - an order clears the account snapshot — 4 invalidations: guards never decide on stale equity

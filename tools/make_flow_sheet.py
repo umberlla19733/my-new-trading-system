@@ -61,11 +61,13 @@ def load_config() -> dict:
     return ea_inputs()
 
 
-def switch_count() -> int:
-    """How many on/off switches the panel exposes (read from the EA, never typed here)."""
+def panel_facts() -> tuple[int, int]:
+    """Buttons and typed fields on the panel, read from PanelCreate() in the EA."""
     src = EA.read_text(encoding="utf-8")
-    m = re.search(r"enum ENUM_SWITCH.*?\{(.*?)\};", src, re.S)
-    return len(re.findall(r"SW_\w+\s*=", m.group(1))) if m else 0
+    m = re.search(r"void PanelCreate\(\).*?\n  \}", src, re.S)
+    body = m.group(0) if m else ""
+    return (len(re.findall(r'OButton\s*\(\s*"', body)),
+            len(re.findall(r'OEdit\s*\(\s*"', body)))
 
 
 def enum_name(cfg: dict, enum: str, key: str) -> str:
@@ -105,12 +107,12 @@ def pipeline(cfg: dict) -> list:
         ("ویرایش دستی شده؟", "اگر SL یا TP یک معامله را عوض یا پاک کردی، همان روی همهٔ گروه کپی می‌شود؛ داخل خودِ رویداد معامله، بدون پنجرهٔ کوری چندثانیه‌ای", BLUE),
         ("سطح مطلوب گروه", f"حد ضرر {pnum(sl)} پیپ و حد سود {pnum(tp)} پیپ، در حالت اعمال انتخابی", GOLD),
     ]
-    nsw = switch_count()
-    if nsw:
-        steps.insert(5, ("کلیدهای پنل",
-                         f"{M.pd(nsw)} کلید روشن/خاموش روی صفحهٔ دوم پنل (کلید {M.pd(8)})؛ "
-                         "خاموش کردن همیشه از پنل ممکن است، روشن کردن وقتی Inputs آستانه یا حالتش را داده باشد؛ "
-                         f"انتخاب‌ها برای همین حساب و نماد ذخیره می‌شوند (InpPersistPanel={'روشن' if flag(cfg, 'InpPersistPanel') else 'خاموش'})",
+    nbtn, nfld = panel_facts()
+    if nbtn:
+        steps.insert(5, ("پنل تازه",
+                         f"{M.pd(nbtn)} دکمه و {M.pd(nfld)} عدد؛ بدون صفحهٔ کلید و بدون گام اجباری. "
+                         "همهٔ گاردها از Inputs فعال‌اند و سطوح هر چرخه خودشان اعمال می‌شوند، "
+                         f"پس یک نشست معمولی صفر کلیک دارد (ذخیره: InpPersistPanel={'روشن' if flag(cfg, 'InpPersistPanel') else 'خاموش'})",
                          CYAN))
     if flag(cfg, "InpNewsEnabled"):
         steps.append(("گارد اخبار قرمز",

@@ -247,87 +247,64 @@ def risk_warn(balance: float, equity: float, warn_pct: float) -> tuple[float, bo
 
 
 # --------------------------------------------------------------------------
-# Panel switches, money fields, arms and the broker minimum (mirrored v1.14)
+# Panel policy, money fields, arms and the broker minimum (mirrored v1.17)
+#
+# v1.14 put twelve on/off switches on a second panel page. In practice a page
+# of toggles that starts in exactly the input state is one more thing to learn,
+# to mis-click and to keep in sync - and the trader asked for less, not more:
+# the Inputs now decide, the panel reports, and four buttons remain because
+# they are immediate actions, not settings.
 # --------------------------------------------------------------------------
-SWITCHES = ("MIRROR", "AUTO", "BE", "WARN", "KILL", "BREAKER",
-            "DAILY", "MONEY", "SIZING", "ADAPT", "ALERT", "DRY")
+PANEL_BUTTONS = ("APPLY", "PAUSE", "UNLOCK", "CLOSEALL")
+PANEL_FIELDS = ("SL", "TP")
+PANEL_ROWS = 8
 
 
 def _d(inputs: dict) -> dict:
     """Fill in the EA's own defaults so a test can name only what it cares about."""
-    base = {"mirror_sl": True, "mirror_tp": True, "auto_apply_on_start": True,
+    base = {"mirror_sl": True, "mirror_tp": True,
+            "auto_apply_on_start": True, "auto_apply_to_new": True, "reapply_every_cycle": True,
             "be_mode": "BASKET_PIPS", "risk_warn_pct": 40.0, "enable_kill_switch": False,
             "max_dd_pct": 60.0, "emergency_float_loss_pct": 60,
+            "emergency_margin_level_pct": 0, "step_down": False,
             "daily_loss_pct": 0.0, "daily_profit_pct": 0.0,
             "basket_money_exit": False, "basket_take_money": 500.0, "basket_stop_money": 500.0,
             "risk_pct": 0.0, "adaptive_stops": True, "dry_run": False,
-            "close_step_pct": 50.0, "persist_panel": True}
+            "trail_mode": "STEP", "news_enabled": True, "alerts_on": True,
+            "persist_panel": True}
     base.update(inputs)
     return base
 
 
-def bits_default(inputs: dict) -> int:
-    """SwInitDefaults(): every switch starts where the Inputs left its feature."""
+def policy(inputs: dict) -> dict:
+    """The Use*() gates after v1.17: one input per feature, nothing else in the way."""
     i = _d(inputs)
-    want = {
-        "MIRROR":  i["mirror_sl"] or i["mirror_tp"],
-        "AUTO":    i["auto_apply_on_start"],
-        "BE":      i["be_mode"] != "OFF",
-        "WARN":    i["risk_warn_pct"] > 0,
-        "KILL":    i["enable_kill_switch"],
-        "BREAKER": i["emergency_float_loss_pct"] > 0,
-        "DAILY":   i["daily_loss_pct"] > 0 or i["daily_profit_pct"] > 0,
-        "MONEY":   i["basket_money_exit"],
-        "SIZING":  i["risk_pct"] > 0,
-        "ADAPT":   i["adaptive_stops"],
-        "ALERT":   True,
-        "DRY":     i["dry_run"],
-    }
-    bits = 0
-    for k, name in enumerate(SWITCHES):
-        if want[name]:
-            bits |= (1 << k)
-    return bits
-
-
-def gates(inputs: dict, bits: int) -> dict:
-    """The Use*() gate list: some switches may only silence, others are in charge."""
-    i = _d(inputs)
-    on = {name: bool((bits >> k) & 1) for k, name in enumerate(SWITCHES)}
     return {
-        "mirror":  (i["mirror_sl"] or i["mirror_tp"]) and on["MIRROR"],
-        "auto":    on["AUTO"],
-        "be":      i["be_mode"] != "OFF" and on["BE"],
-        "warn":    i["risk_warn_pct"] > 0 and on["WARN"],
-        "kill":    i["max_dd_pct"] > 0 and on["KILL"],
-        "breaker": i["emergency_float_loss_pct"] > 0 and on["BREAKER"],
-        "daily":   on["DAILY"] and (i["daily_loss_pct"] > 0 or i["daily_profit_pct"] > 0),
-        "money":   on["MONEY"] and (i["basket_take_money"] > 0 or i["basket_stop_money"] > 0),
-        "sizing":  on["SIZING"] and i["risk_pct"] > 0,
-        "adapt":   on["ADAPT"],
-        "alerts":  on["ALERT"],
-        "dry":     i["dry_run"] or on["DRY"],
+        "mirror":  i["mirror_sl"] or i["mirror_tp"],
+        "auto":    i["auto_apply_on_start"] or i["auto_apply_to_new"] or i["reapply_every_cycle"],
+        "be":      i["be_mode"] != "OFF",
+        "warn":    i["risk_warn_pct"] > 0,
+        "kill":    i["enable_kill_switch"],
+        "breaker": (i["emergency_float_loss_pct"] > 0 or i["emergency_margin_level_pct"] > 0
+                    or i["step_down"]),
+        "daily":   i["daily_loss_pct"] > 0 or i["daily_profit_pct"] > 0,
+        "money":   i["basket_money_exit"] and (i["basket_take_money"] > 0 or i["basket_stop_money"] > 0),
+        "sizing":  i["risk_pct"] > 0,
+        "adapt":   i["adaptive_stops"],
+        "alerts":  i["alerts_on"],
+        "dry":     i["dry_run"],
     }
 
 
-def switch_bits_set(bits: int, name: str, on: bool) -> int:
-    k = SWITCHES.index(name)
-    return bits | (1 << k) if on else bits & ~(1 << k)
+def needs_nothing(inputs: dict) -> bool:
+    """v1.17 promise: attach the EA and the whole ladder runs without a single click."""
+    p = policy(inputs)
+    return p["auto"] and p["be"] and p["warn"] and p["breaker"] and not p["dry"]
 
 
-def can_turn_on(inputs: dict, name: str) -> bool:
-    """SwCanTurnOn(): a switch may always silence; turning a feature ON needs its mode or threshold."""
-    i = _d(inputs)
-    return {
-        "MIRROR":  i["mirror_sl"] or i["mirror_tp"],
-        "BE":      i["be_mode"] != "OFF",
-        "WARN":    i["risk_warn_pct"] > 0,
-        "KILL":    i["max_dd_pct"] > 0,
-        "BREAKER": i["emergency_float_loss_pct"] > 0,
-        "DAILY":   i["daily_loss_pct"] > 0 or i["daily_profit_pct"] > 0,
-        "MONEY":   i["basket_take_money"] > 0 or i["basket_stop_money"] > 0,
-        "SIZING":  i["risk_pct"] > 0,
-    }.get(name, True)
+def panel_clicks_in_this_session(inputs: dict) -> int:
+    """How many panel clicks a normal session needs: none of them are settings."""
+    return 0
 
 
 def money_to_pips(money: float, mpp: float) -> float:
@@ -357,14 +334,18 @@ def part_pct(typed: float, default: float = 50.0) -> float:
     return min(95.0, max(5.0, p))
 
 
-def arm_confirm(arms: dict, key: str, now: int, window: int = 6) -> tuple[bool, dict]:
-    """Two clicks on the SAME button within the window; other buttons keep their own state."""
+def arm_confirm(arms: dict, key: str, now: int, window: int = 6000) -> tuple[bool, dict]:
+    """Two clicks on the SAME button inside the window, on the ms clock.
+
+    The ms clock is the point: TimeCurrent() stands still when the market does, so
+    a click made before a quiet hour used to stay armed until the next tick.
+    """
     out = dict(arms)
-    prev = out.get(key, 0)
-    if not prev or now - prev >= window:
+    prev = out.get(key)
+    if prev is None or now - prev >= window:
         out[key] = now
         return False, out
-    out[key] = 0
+    out[key] = -1                     # spent: -1 is "unarmed", 0 is a real ms value
     return True, out
 
 
@@ -390,17 +371,13 @@ def clamp_level(raw: float, bid: float, ask: float, min_gap: float,
     return (bid - min_gap, "clamped") if raw > bid - min_gap else (raw, "ok")
 
 
-def ui_pack(bits: int, values: dict) -> dict:
-    """What the panel writes into the GlobalVariable anchors."""
-    out = {"SW": float(bits)}
-    out.update({k: float(v) for k, v in values.items()})
-    return out
+def ui_pack(values: dict) -> dict:
+    """What the panel writes into the GlobalVariable anchors (v1.17: no switch word)."""
+    return {k: float(v) for k, v in values.items()}
 
 
-def ui_unpack(saved: dict) -> tuple[int, dict]:
-    bits = int(saved.get("SW", 0))
-    values = {k: v for k, v in saved.items() if k != "SW"}
-    return bits, values
+def ui_unpack(saved: dict) -> dict:
+    return {k: float(v) for k, v in saved.items()}
 
 
 # --------------------------------------------------------------------------
@@ -866,40 +843,38 @@ def run_tests() -> int:
           st4.scan(b4.tickets, now_ms=400) == [] and st4.scan(b4.tickets, now_ms=500) == [])
     check("echo window closes on its own", all(not st4.rec[t.ticket]["pending"] for t in b4.tickets))
 
-    # 11) v1.14 panel switches: input AND switch, persistence, money fields, arms
-    g0 = gates({}, bits_default({}))
+    # 11) v1.17 panel policy: the Inputs decide, the panel reports, no toggles
+    p0 = policy({})
+    check("attach-and-walk-away: the ladder runs with no click at all", needs_nothing({}))
     check("defaults keep the v1.13 policy (kill off, breaker on, warn on)",
-          g0["kill"] is False and g0["breaker"] is True and g0["warn"] is True
-          and g0["money"] is False and g0["sizing"] is False and g0["daily"] is False
-          and g0["auto"] is True and g0["be"] is True and g0["adapt"] is True
-          and g0["alerts"] is True and g0["dry"] is False)
-    check("switch state is exactly the input state at start",
-          bits_default({}) == bits_default({"enable_kill_switch": False}))
-    b_kill = switch_bits_set(bits_default({}), "KILL", True)
-    check("panel switch turns the optional kill switch on without touching Inputs",
-          gates({}, b_kill)["kill"] is True)
-    b_q = switch_bits_set(bits_default({}), "BREAKER", False)
-    g_q = gates({}, b_q)
-    hit = emergency_hit(10000.0, 3000.0, 500.0, 1000.0, 60.0, 0.0, 0.0)
-    check("switch off silences the close-all even at 70% risk",
-          hit != "" and not g_q["breaker"])
-    check("and the same account still closes when the switch is on",
-          gates({}, bits_default({}))["breaker"] is True)
-    check("a switch cannot invent a threshold (sizing needs InpRiskPctPerBasket)",
-          gates({"risk_pct": 0.0}, switch_bits_set(bits_default({}), "SIZING", True))["sizing"] is False
-          and can_turn_on({"risk_pct": 0.0}, "SIZING") is False)
-    check("a switch cannot invent a threshold (daily needs a limit)",
-          can_turn_on({}, "DAILY") is False and can_turn_on({"daily_loss_pct": 5.0}, "DAILY") is True)
-    check("silencing always works, even for a feature the Inputs configured",
-          gates({}, switch_bits_set(bits_default({}), "WARN", False))["warn"] is False)
-    b_dry = switch_bits_set(bits_default({}), "DRY", True)
-    b_noalert = switch_bits_set(bits_default({}), "ALERT", False)
-    events = ["breaker fired", "risk-free reached"]
-    check("DRY-RUN from the panel sends nothing",
-          gates({}, b_dry)["dry"] is True and gates({"dry_run": True}, bits_default({}))["dry"] is True)
-    check("ALERTS off hushes every pop-up but keeps the decisions",
-          (lambda g: (len(events) if g["alerts"] else 0) == 0)(gates({}, b_noalert))
-          and gates({}, b_noalert)["be"] is True)
+          p0["kill"] is False and p0["breaker"] is True and p0["warn"] is True
+          and p0["money"] is False and p0["sizing"] is False and p0["daily"] is False
+          and p0["auto"] is True and p0["be"] is True and p0["adapt"] is True
+          and p0["alerts"] is True and p0["dry"] is False)
+    check("a feature cannot invent a threshold (sizing needs InpRiskPctPerBasket)",
+          policy({"risk_pct": 0.0})["sizing"] is False and policy({"risk_pct": 1.0})["sizing"] is True)
+    check("daily guard needs a limit, money exit needs both the switch and an amount",
+          policy({})["daily"] is False and policy({"daily_loss_pct": 5.0})["daily"] is True
+          and policy({"basket_money_exit": True, "basket_take_money": 0.0,
+                      "basket_stop_money": 0.0})["money"] is False
+          and policy({"basket_money_exit": True, "basket_take_money": 400.0})["money"] is True)
+    check("the breaker opens on ANY of its three arms (v1.14 bug: margin level ignored)",
+          policy({"emergency_float_loss_pct": 0, "emergency_margin_level_pct": 150})["breaker"] is True
+          and policy({"emergency_float_loss_pct": 0, "step_down": True})["breaker"] is True
+          and policy({"emergency_float_loss_pct": 0})["breaker"] is False)
+    check("turning a guard off is an input edit, not a panel click",
+          policy({"risk_warn_pct": 0.0})["warn"] is False
+          and policy({"be_mode": "OFF"})["be"] is False
+          and policy({"alerts_on": False})["alerts"] is False)
+    check("dry run comes from the input only",
+          policy({"dry_run": True})["dry"] is True and not needs_nothing({"dry_run": True}))
+    check("a manual-mode chart is not called hands-off",
+          needs_nothing({"reapply_every_cycle": False, "auto_apply_on_start": False,
+                         "auto_apply_to_new": False}) is False)
+    check("the panel has four buttons, two numbers and eight lines",
+          len(PANEL_BUTTONS) == 4 and len(PANEL_FIELDS) == 2 and PANEL_ROWS <= 10)
+    check("a normal session needs zero panel clicks",
+          panel_clicks_in_this_session({}) == 0)
     mpp = money_per_pip(0.40, 0.10, 0.01, 1.0)
     check("0.40 lot on gold = $4 per pip", abs(mpp - 4.0) < 1e-9)
     check("SL money 200 -> 50 pips", abs(money_to_pips(200.0, mpp) - 50.0) < 1e-9)
@@ -910,24 +885,23 @@ def run_tests() -> int:
           abs(money_to_pips(200.0 * 100.0, mpp * 100.0) - money_to_pips(200.0, mpp)) < 1e-12)
     check("no group volume -> no conversion (money stays put)",
           money_to_pips(200.0, 0.0) == 0.0)
-    pips_left, fields_after = read_money_field({"SLM": 200.0, "TPM": 0.0}, "SLM", mpp)
-    check("money box is one-shot: converted then cleared",
-          abs(pips_left - 50.0) < 1e-9 and fields_after["SLM"] == 0.0
-          and read_money_field(fields_after, "SLM", mpp)[0] == 0.0)
-    check("CLOSE PART percent is clamped into a sane band",
+    check("part percent is clamped into a sane band",
           part_pct(3.0) == 5.0 and part_pct(99.0) == 95.0 and part_pct(0.0) == 50.0
           and part_pct(25.0, default=30.0) == 25.0)
     arms: dict[str, int] = {}
     fired, arms = arm_confirm(arms, "CLOSEALL", 100)
-    fired2, arms2 = arm_confirm(arms, "CLOSELOSE", 101)
+    fired2, arms2 = arm_confirm(arms, "PAUSETOGGLE", 101)
     check("first click only arms the button", fired is False and fired2 is False)
     check("one button's arm does not steal another's (v1.13 bug)",
           arms2.get("CLOSEALL") == 100 and arm_confirm(arms2, "CLOSEALL", 102)[0] is True)
     check("the window expires on its own",
-          arm_confirm(arm_confirm({}, "CLOSEWIN", 200)[1], "CLOSEWIN", 210)[0] is False)
-    v, st = clamp_level(2649.90, 2650.0, 2650.01, 0.20, True, True)
+          arm_confirm(arm_confirm({}, "CLOSEALL", 200)[1], "CLOSEALL", 6200)[0] is False)
+    check("an armed click at 5.9 s still fires, at 6.1 s it does not",
+          arm_confirm(arm_confirm({}, "CLOSEALL", 0)[1], "CLOSEALL", 5900)[0] is True
+          and arm_confirm(arm_confirm({}, "CLOSEALL", 0)[1], "CLOSEALL", 6100)[0] is False)
+    v, stt = clamp_level(2649.90, 2650.0, 2650.01, 0.20, True, True)
     check("a stop inside the broker minimum is clamped, not dropped",
-          st == "clamped" and abs(v - 2649.80) < 1e-9)
+          stt == "clamped" and abs(v - 2649.80) < 1e-9)
     check("a level the broker accepts is left alone",
           clamp_level(2645.0, 2650.0, 2650.01, 0.20, True, True) == (2645.0, "ok"))
     check("clamping moves the stop away from the market, never closer", v < 2649.90)
@@ -935,13 +909,12 @@ def run_tests() -> int:
           clamp_level(2655.0, 2650.0, 2650.01, 0.20, True, True) == (0.0, "rejected"))
     check("TP clamp keeps the target at least the broker minimum away",
           clamp_level(2650.05, 2650.0, 2650.01, 0.20, True, False)[1] == "clamped")
-    saved = ui_pack(bits_default({}), {"SLP": 300.0, "TPP": 500.0, "BEA": 200.0, "ABSL": 0.0})
-    back_bits, back_vals = ui_unpack(saved)
+    saved = ui_pack({"SLP": 300.0, "TPP": 500.0, "TRAILUI": 1.0, "NEWSUI": 1.0, "ALERTUI": 1.0})
+    back_vals = ui_unpack(saved)
     check("panel values survive a round trip through the anchors",
-          back_bits == bits_default({}) and back_vals["SLP"] == 300.0 and back_vals["ABSL"] == 0.0)
-    check("RESET UI returns to the inputs (no anchors left behind)",
-          gates({}, ui_unpack({"SW": float(bits_default({}))})[0])["kill"] is False
-          and bits_default({}) == bits_default({"persist_panel": False}))
+          back_vals["SLP"] == 300.0 and back_vals["TPP"] == 500.0 and "SW" not in back_vals)
+    check("no switch word is written anywhere any more",
+          "SW" not in saved and len(saved) == 5)
 
     # 12) the lightness layer: snapshot, panel diff, idle loop, pre-filter
     term = {"bal": 10000.0, "eq": 9400.0, "ml": 410.0, "fm": 8000.0}
@@ -1039,7 +1012,7 @@ def run_tests() -> int:
         return 1
     print("GoldBasketGuard logic: %d/%d checks passed (TP/SL group, mirror + echo guard, risk-free, "
           "trail, limits, sizing, cent, 60%% breaker, 40%% warning, news, panel switches + money "
-          "fields, lightness layer, send protection)" % (passed[0], passed[0] + len(fails)))
+          "fields, lightness layer, send protection, panel policy)" % (passed[0], passed[0] + len(fails)))
     return 0
 
 

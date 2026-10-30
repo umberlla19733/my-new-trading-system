@@ -79,9 +79,8 @@ DEFAULTS_CONTRACT = [
     ("InpEmergencyLockHours", "24", "EA stays locked after an emergency"),
     ("InpAdaptiveStops", "true", "widens the guard when the broker rejects"),
     ("InpDryRun", "false", "live by default (demo is the user's choice)"),
-    ("InpPersistPanel", "true", "panel switches and typed values survive a reattach, per account + symbol"),
-    ("InpCloseStepPct", "50.0", "the CLOSE PART button takes half of the group by default"),
-    ("InpShowSwitchesFirst", "false", "the panel opens on the monitor page, the switches are one key away"),
+    ("InpPersistPanel", "true", "the two toggles and the two typed numbers survive a reattach, per account + symbol"),
+    ("InpReapplyEveryCycle", "true", "levels stay glued without pressing anything - the panel is a readout"),
 ]
 
 
@@ -237,23 +236,44 @@ def verify(g: Gate, version: str) -> dict:
             "; ".join(off[:3]) or "attach with no changes = gold setup, all guards armed")
     stats["contract"] = len(DEFAULTS_CONTRACT)
 
-    # --- v1.14: the panel switches must really be wired to the features ---------
-    sw_enum = re.search(r"enum ENUM_SWITCH.*?\n  \{(.*?)\n  \};", text, re.S)
-    names = re.findall(r"SW_(\w+)\s*=\s*(\d+)", sw_enum.group(1)) if sw_enum else []
-    bad: list[str] = []
-    for nm, _ in names:
-        body = text.count(f"SwWrite(SW_{nm}")
-        gate = len(re.findall(r"return \([^)]*SwOn\(SW_" + nm + r"\)", text)) + text.count(f"return SwOn(SW_{nm});")
-        if body < 1:
-            bad.append(f"SW_{nm}: no default taken from the Inputs")
-        if gate < 1:
-            bad.append(f"SW_{nm}: not read by any gate function")
-    g.check(f"panel switches wired to gates ({len(names)} switches)", bool(names) and not bad,
-            "; ".join(bad[:3]) or "every switch has an input default and is read by a Use*() gate")
-    stats["switches"] = len(names)
+    # --- v1.17: the panel reports; nothing has to be clicked before it works -----
+    create = ea_function_body(text, "PanelCreate")
+    buttons = re.findall(r'OButton\(\s*"(\w+)"', create)
+    g.check("the panel carries four buttons and no more",
+            set(buttons) == {"APPLY", "PAUSE", "UNLOCK", "CLOSEALL"}, " ".join(buttons))
+    fields = len(re.findall(r'OEdit\s*\(\s*"(\w+)"', create))
+    g.check("two numbers on the panel, no more", fields == 2, f"{fields} editable fields")
+    rows = re.search(r"int PanelRows\(\)\s*\{\s*return (\d+);", text)
+    g.check("the panel is one small card", bool(rows) and int(rows.group(1)) <= 10,
+            f"{rows.group(1) if rows else '?'} lines")
+    g.check("no page of toggles came back",
+            "ENUM_SWITCH" not in text and "g_page" not in text and "g_mini" not in text
+            and "BTN_TG" not in text and "SwClicked" not in text,
+            "the Inputs decide what runs; the chart only reports and overrides")
+    stats["switches"] = 0
+
+    auto = ea_function_body(text, "UseAutoApply")
+    g.check("automation is on by default",
+            same_value(d.get("InpAutoApplyOnStart"), "true")
+            and same_value(d.get("InpAutoApplyToNew"), "true")
+            and same_value(d.get("InpReapplyEveryCycle"), "true")
+            and "InpReapplyEveryCycle" in auto,
+            "levels are glued from the first cycle, so APPLY is only an emergency override")
+    body = ea_function_body(text, "OnButton")
+    g.check("every click runs a cycle at once", "RunCycle()" in body and "PanelUpdate()" in body,
+            "the panel shows the result of the click, not of the next tick")
+    arm = ea_function_body(text, "ArmConfirm")
+    g.check("only the destructive click asks twice",
+            "ArmConfirm(" in body and re.search(r"bool ArmConfirm\([^)]*long &arm", text) is not None
+            and "NowMs()" in arm and "TimeCurrent()" not in arm,
+            "CLOSE ALL arms on the ms clock: TimeCurrent() stands still when the market does")
+    arms = len(re.findall(r"long\s+g_arm_\w+", text))
+    g.check("each armed action has its own timer", arms >= 2, f"{arms} arm timers")
+    g.check("closing is still one call, no loop of sleeps",
+            "Sleep(" not in ea_function_body(text, "CloseSingle"), "one attempt per cycle per ticket")
 
     # an order site may not consult the raw input any more - it must ask DryOn()
-    dry_ok = {"DryOn", "SwInitDefaults", "SwClicked", "SwTip"}
+    dry_ok = {"DryOn"}
     dry_bad, cur_fn = [], None
     for ln in text.splitlines():
         m0 = re.match(r"^(?:bool|void|int|double|string|long|datetime)\s+(\w+)\s*\(", ln)
@@ -265,15 +285,7 @@ def verify(g: Gate, version: str) -> dict:
             dry_bad.append(cur_fn)
     g.check("dry run goes through one gate", not dry_bad,
             ", ".join(sorted(set(dry_bad))[:3]) + " still reads InpDryRun" if dry_bad
-            else "only DryOn(), the defaults and the panel text read InpDryRun")
-
-    # money entry and the second-click arms must stay per button
-    g.check("money entry on the panel", "MoneyFieldToPips(\"SLM\"".replace('\"', '"') in text
-            and "MoneyFieldToPips(\"TPM\"".replace('\"', '"') in text,
-            "SL money and TP money boxes convert through GroupMoneyPerPip()")
-    arms = len(re.findall(r"datetime g_arm_\w+", text))
-    g.check("every close button arms on its own", arms >= 4, f"{arms} arm timers")
-    g.check("partial close from the panel", "ClosePartialGroup(PartPct()" in text, "CLOSE PART uses the percent field")
+            else "only DryOn() and the input itself read InpDryRun")
 
     # the lightness contract: a cycle may not cost more than the budget below,
     # measured by tools/mql5_cost.py (the numbers there are ratcheted, not aspirational)

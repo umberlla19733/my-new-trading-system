@@ -99,6 +99,13 @@ def strip_code(src: str) -> str:
             out.append(" ")
             i += 1
             continue
+        if c == "'":                       # a char literal may hold { } [ ] ( )
+            j = i + 1
+            while j < n and src[j] != "'":
+                j += 2 if src[j] == "\\" else 1
+            out.append(" " * (min(j, n - 1) - i + 1))
+            i = j + 1
+            continue
         out.append(c)
         i += 1
     return "".join(out)
