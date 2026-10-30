@@ -177,9 +177,13 @@ def pd(x) -> str:
     return persian_digits(x)
 
 
-def sw_count(root: Path) -> int:
-    m = re.search(r"enum ENUM_SWITCH.*\n  \{(.*?)\n  \};", ea_text(root), re.S)
-    return len(re.findall(r"SW_\w+\s*=", m.group(1))) if m else 0
+def panel_facts(root: Path) -> tuple[int, int]:
+    """Buttons and typed fields on the panel, read from PanelCreate() - never typed here."""
+    src = ea_text(root)
+    m = re.search(r"void PanelCreate\(\).*?\n  \}", src, re.S)
+    body = m.group(0) if m else ""
+    return (len(re.findall(r'OButton\s*\(\s*"', body)),
+            len(re.findall(r'OEdit\s*\(\s*"', body)))
 
 
 def ea_version(root: Path) -> str:
@@ -207,7 +211,7 @@ def collect_stats(root: Path):
 # CARDS / PANEL_LINES / PANEL_NOTES / STEPS are built from the EA source in
 # build(); the literals below are only the fallback if the file cannot be read.
 
-def build_cards(cfg: dict, nsw: int) -> list:
+def build_cards(cfg: dict, nsw: tuple = (0, 0)) -> list:
     be = pd(fd(cfg, "InpBeTriggerPips", 200))
     part = pd(fd(cfg, "InpBeClosePartialPct", 30))
     warn = pd(fd(cfg, "InpRiskWarnPct", 40))
@@ -215,7 +219,7 @@ def build_cards(cfg: dict, nsw: int) -> list:
     before, after = pd(fd(cfg, "InpNewsBeforeMin", 20)), pd(fd(cfg, "InpNewsAfterMin", 15))
     timer = pd(fd(cfg, "InpTimerMs", 100))
     sl, tp = pd(fd(cfg, "InpSLPips", 300)), pd(fd(cfg, "InpTPPips", 500))
-    step = pd(fd(cfg, "InpCloseStepPct", 50))
+    step = pd(fd(cfg, "InpBeClosePartialPct", 30))
     return [
         dict(icon="group", color=GOLD, title="حد سود و حد ضرر گروهی",
              bullets=["یک عدد وارد کن؛ روی همهٔ معاملات گروه اعمال می‌شود",
@@ -226,16 +230,16 @@ def build_cards(cfg: dict, nsw: int) -> list:
              bullets=["SL یا TP یک معامله را که دستی بکشی، روی همه کپی می‌شود",
                       "واکنش داخل خودِ رویداد معامله؛ حلقهٔ " + timer + " میلی‌ثانیه‌ای",
                       "پاک کردن حد ضرر از یک معامله، از همه حذف می‌شود",
-                      "اگر نگران دست‌کاری حد ضررهای دیگرانی، کلید MIRROR را خاموش کن"]),
+                      "اگر نمی‌خواهی ویرایش دستی کپی شود، InpMirrorSL/TP را خاموش کن"]),
         dict(icon="lock", color=GREEN, title="ریسک‌فری (سربه‌سر) خودکار",
              bullets=[f"بعد از {be} پیپ سود گروه، حد ضررها روی ورود به‌علاوه قفل",
                       "تریلینگ پله‌ای، ثابت یا خطی؛ حد ضرر هرگز عقب نمی‌رود",
                       f"اختیاری: بستن {part}٪ از حجم سبد + هشدار موبایل"]),
-        dict(icon="switch", color=CYAN, title=f"کلیدهای روشن/خاموش روی پنل ({nsw} کلید)",
-             bullets=["میرورینگ، اعمال خودکار، ریسک‌فری، تریلینگ، گارد اخبار، breaker، حد روزانه، پولی، سایزینگ، آلارم، Dry-Run",
-                      "خاموش کردن همیشه از پنل می‌شود؛ روشن کردن هم وقتی که آستانهٔ لازم در Inputs باشد",
-                      "انتخاب‌ها برای همین حساب و نماد ذخیره می‌شوند؛ دکمهٔ RESET UI برمی‌گرداند به Inputs",
-                      f"کلید {pd(8)} صفحهٔ کلیدها، کلید {pd(9)} پنل کوچک"]),
+        dict(icon="switch", color=CYAN, title="همه‌چیز خودکار است؛ پنل فقط گزارش می‌دهد",
+             bullets=[f"پنل تازه: یک کارت کوچک، {pd(nsw[0])} دکمه و {pd(nsw[1])} عدد — بدون صفحهٔ کلید و بدون منوی تودرتو",
+                      "قانون‌ها در Inputs تعیین می‌شوند؛ پنل همان‌ها را نشان می‌دهد و اجازهٔ اصلاح فوری می‌دهد",
+                      "سطوح گروه هر چرخه خودشان چسبیده نگه داشته می‌شوند؛ لازم نیست دکمهٔ اعمال بزنی",
+                      "چهار دکمه فقط کارهای فوری‌اند: APPLY، توقف، رفع قفل، بستن همه (با تأیید دو کلیک)"]),
         dict(icon="news", color=RED, title="گارد اخبار قرمز (Red Folder)",
              bullets=["تقویم اقتصادی داخلی MT5، بدون WebRequest و سرویس جانبی",
                       f"{before} دقیقه قبل تا {after} دقیقه بعد از خبر؛ واکنش پیش‌فرض: {fenum(cfg, 'InpNewsAction')} (فقط هشدار)",
@@ -253,7 +257,7 @@ def build_cards(cfg: dict, nsw: int) -> list:
     ]
 
 
-def build_panel(cfg: dict, nsw: int) -> list:
+def build_panel(cfg: dict, nsw: tuple = (0, 0)) -> list:
     """A mock of the real panel. Mono digits on purpose: this block imitates the
     chart objects, and Vazirmatn shaping would turn it into soup."""
     def num(key: str, dflt: float, dec: int = 0) -> str:
@@ -273,30 +277,20 @@ def build_panel(cfg: dict, nsw: int) -> list:
         f"risk-free: ON arm {be} p, lock {lock} p, done 3 | trail ON",
         "news: USD Non-Farm Payrolls @ 16:30 (in 4 min)",
         "margin 412.5% | free 4980.10 | day P/L -120.40 | float -12.4% bal",
-        f"mirror on | auto on | breaker {brk}% | warn {warn}% | dry off",
-        f"act: mirror -> 4 ticket(s) | loop {timer} ms | stops 0 pt",
-        "[APPLY TP+SL][APPLY SL][APPLY TP][CLEAR SL/TP]",
-        "[RISK-FREE NOW][TRAIL ON][NEWS ON][PAUSE][UNLOCK]",
-        f"[CLOSE ALL][CLOSE LOSERS][CLOSE {step}%][CLOSE WINNERS][SWITCHES {nsw}]",
-        "-- SWITCHES (key 8) " + "-" * 24,
-        "[1 MIRROR    ON ][2 AUTO-APPLY ON ]",
-        "[3 RISK-FREE ON ][4 WARN      ON ]",
-        "[5 KILL     OFF*][6 BREAKER   ON ]",
-        "[7 DAILY    OFF*][8 MONEY     OFF*]",
-        "[9 SIZING   OFF*][- ADAPTIVE  ON ]",
-        "[0 ALERTS    ON ][= DRY-RUN  OFF ]",
-        "[BACK][RESET UI]",
+        "auto ON | breaker " + brk + "% | warn " + warn + "% | trail + news per Inputs",
+        f"act: glued | loop {timer} ms | sent 12, refused 0",
+        "[APPLY TP+SL][PAUSE / RUN][UNLOCK][CLOSE ALL]",
     ]
 
 
-def build_notes(cfg: dict, nsw: int) -> list:
+def build_notes(cfg: dict, nsw: tuple = (0, 0)) -> list:
     return [
-        f"کلیدها: {pd(1)} اعمال، {pd(2)} فقط SL، {pd(3)} فقط TP، {pd(4)} ریسک‌فری، {pd(5)} تریلینگ، {pd(6)} اخبار، {pd(7)} رفع قفل، {pd(0)} توقف، {pd(8)} صفحهٔ کلیدها، {pd(9)} پنل کوچک",
-        f"در صفحهٔ کلیدها همان {nsw} کلید با {pd('1-9، 0، - و =')} خاموش/روشن می‌شوند؛ ستاره یعنی Inputs آن قابلیت را بسته است",
-        "چهار دکمهٔ بستن (همه، زیان‌ده‌ها، سودده‌ها، بخشی از حجم) به دو کلیک پشت سر هم نیاز دارند",
-        "فیلدهای پیپ + کادرهای پولی (SL money / TP money / درصد بستن بخشی) روی همین پنل تایپ می‌شوند",
+        "میان‌بُرها (اختیاری، هیچ‌کدام برای کار کردن لازم نیست): ۱ اعمال، ۴ ریسک‌فری فوری، ۵ تریلینگ، ۶ اخبار، ۷ رفع قفل، ۰ توقف، ۹ بستن همه (دو بار)، [ ریست پنل",
+        "هیچ کلیدی برای کار کردن اکسپرت لازم نیست؛ همهٔ گاردها از همان لحظهٔ اتصال با Inputs فعال‌اند",
+        "تنها اقدامی که دو کلیک می‌خواهد بستن همه است (کلید ۹ یا دکمهٔ CLOSE ALL)",
+        "فقط دو عدد روی پنل تایپ می‌شوند: SL و TP بر حسب پیپ — همان‌هایی که هر چرخه دوباره اعمال می‌شوند",
         "خط risk at SL می‌گوید اگر حد ضرر بخورد چند درصد موجودی می‌رود",
-        f"با {pd(1)} انتخاب پنل و اعداد تایپی ذخیره می‌شوند (InpPersistPanel) و با RESET UI پاک می‌شوند",
+        "تریلینگ، گارد اخبار، آلارم‌ها و دو عدد تایپی برای همین حساب ذخیره می‌شوند (InpPersistPanel) و با [ پاک می‌شوند",
     ]
 
 
@@ -307,8 +301,8 @@ def build_steps(cfg: dict) -> list:
     timer = pd(fd(cfg, "InpTimerMs", 100))
     return [("۱", "نصب", "mq5 را در پوشهٔ Experts بگذار، F7"),
             ("۲", "اتصال", "بدون Load کردن هیچ فایلی؛ پیپ و نوع حساب خودش تشخیص داده می‌شود"),
-            ("۳", "اعمال گروهی", f"دکمهٔ APPLY TP+SL یا کلید {pd(1)}؛ حلقهٔ {timer} میلی‌ثانیه"),
-            ("۴", "کلیدها", f"کلید {pd(8)} → خاموش/روشن کردن هر قابلیت، بدون بازکردن Inputs"),
+            ("۳", "اعمال گروهی", f"خودکار هر چرخه — پیش‌فرض حتی نیازی به زدن APPLY نیست؛ حلقهٔ {timer} میلی‌ثانیه"),
+            ("۴", "تنظیم", "همه‌چیز در Inputs؛ پنل فقط گزارش می‌دهد و دو عدد SL/TP را می‌شود رویش تایپ کرد"),
             ("۵", "خودکار", "ریسک‌فری، تریلینگ، گارد اخبار، breaker")]
 
 
@@ -415,7 +409,7 @@ def measure_cards(sheet: Sheet, cards, cw, gap, lead):
 def build(out_path: Path, font_dir: str) -> None:
     global STATS, CARDS, PANEL_LINES, PANEL_NOTES, STEPS
     cfg = ea_defaults(ROOT)
-    nsw = sw_count(ROOT)
+    nsw = panel_facts(ROOT)
     CARDS = build_cards(cfg, nsw)
     PANEL_LINES = build_panel(cfg, nsw)
     PANEL_NOTES = build_notes(cfg, nsw)

@@ -5,6 +5,40 @@
 فایل اصلی: [`MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5`](MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5)
 نسخهٔ نهایی (فایل اکسپرت + مستندات + تصویرها، آمادهٔ دانلود): [`release/GoldBasketGuard/`](release/GoldBasketGuard/)
 
+### تازه‌ها در نسخهٔ ۱.۱۷ — پنل خلوت و «شروع کن و برو»
+
+خلاصه در یک خط: **هیچ دکمه‌ای لازم نیست.** هر قانونی که اکسپرت اجرا می‌کند در `Inputs` گفته شده
+است و از همان ثانیهٔ اتصال اجرا می‌شود؛ پنل از یک کارت شلوغ به یک کارت کوچک تبدیل شد که فقط
+**گزارش** می‌دهد و در صورت لزوم اجازهٔ اصلاح فوری می‌دهد.
+
+- **صفحهٔ کلیدها (۱۲ سوئیچ) حذف شد.** هر سوئیچ دقیقاً همان `Input` خودش را روشن/خاموش می‌کرد،
+  پس عملاً یک لایهٔ تکراری بود: یک جا دیگر برای گم‌شدن، کلیک اشتباهی، و `OFF*` که فقط توضیح
+  می‌داد. حالا **هر قابلیت فقط یک کلید دارد و آن هم در `Inputs` است** — همان‌جا که ذخیره
+  می‌شود و در `.set` و لاگ می‌آید.
+- **پنل از ۱۲ سطر + ۱۴ دکمه + ۸ کادر به ۸ سطر + ۴ دکمه + ۲ کادر رسید.** چهار دکمه فقط کارهای
+  فوری‌اند: `APPLY TP+SL` (اضطراری)، `PAUSE / RUN`، `UNLOCK`، `CLOSE ALL`. دو عدد تایپی: `SL pips`
+  و `TP pips`. پنل کوچک (`MINIMISE`) و صفحهٔ دوم هم دیگر وجود ندارند.
+- **سطوح گروه خودشان چسبیده می‌مانند:** `InpReapplyEveryCycle` پیش‌فرض `true` شد، پس حتی
+  `APPLY` هم لازم نیست — با هر تیکت جدید یا تغییر سبد، سطوح از نو حساب و اعمال می‌شوند.
+- **رفع باگ‌های واقعی پنل و دکمه‌ها:**
+  - پنجرهٔ تأیید دو کلیک روی `TimeCurrent()` بود؛ **وقتی بازار می‌بندد این ساعت می‌ایستد**، پس یک
+    کلیک قبل از تعطیلی تا اولین تیک بعدی «مسلح» می‌ماند و بعدی بدون هشدار اجرا می‌کرد. حالا روی
+    ساعت میلی‌ثانیه‌ای ترمینال است (`NowMs()`).
+  - `CLOSE PART` مقدار کادر `part %` را دیر می‌خواند (فقط بعد از کلیک روی خودش) و درصد هم تنها
+    در همان دکمه کار می‌کرد؛ با حذف آن کادر و آن دکمه، مسیر مرده هم حذف شد.
+  - چهار تایمر تأیید جداگانه (`g_arm_all/lose/win/part`) به یک تایمر برای تنها اقدام مخرب رسید.
+  - `PanelClearPage` (که حالا برای تغییر صفحه لازم نیست) هم کش سطرهای پنل را باطل می‌کند — رفع
+    یک سطر سفیدِ جامانده بعد از بازسازی آبجکت‌ها.
+- **`BREAKER` از هر سه شرط باز می‌شود:** قبلاً سوئیچ پنل فقط `InpEmergencyFloatLossPct` را
+  نگاه می‌کرد؛ اگر حساب فقط با **مارجین‌لول** (`InpEmergencyMarginLevelPct`) یا **step-down**
+  محافظت می‌شد، همان سوئیچ «خاموش» نشان می‌داد. حالا `UseBreaker()` هر سه را می‌بیند.
+- **قطع‌شدن میان‌بُرها:** `1..3` اعمال SL/TP (این بار محدودیت‌های هر دو کادر را هم می‌خواند)،
+  `4` ریسک‌فری فوری، `5` تریلینگ، `6` اخبار، `7` رفع قفل، `8` آلارم‌ها، `9` بستن همه (دو بار)،
+  `0` توقف، `-` پاک‌کردن SL/TP (دو بار)، `[` ریست پنل. **هیچ‌کدام برای کار کردن لازم نیست.**
+- نتیجهٔ سنجش: چرخهٔ مدیریت با ۵ تیکت از ۲۰۲ به **۱۴۹** فراخوانی ترمینال و آبجکت‌ها از ۳۹ به **۱۵**
+  نوشتن رسید (پنل کوچک‌تر = رسم سبک‌تر)، خط کد از ۳۷۵۰ به **۳۳۲۷** و ورودی‌ها به **۱۰۸**.
+  تست منطق و گیت انتشار هم‌زمان بزرگ‌تر شدند: **۱۳۸ آزمون** و **۳۸ بررسی**.
+
 ### تازه‌ها در نسخهٔ ۱.۱۶ — اکسپرت دیگر از کار نمی‌افتد
 
 نشانه‌ای که گزارش دادید («بعد از کمی کار کردن از کار می‌افتد») تقریباً همیشه از یک چیز می‌آید:
@@ -157,7 +191,9 @@ python3 tools/gold_pip_calc.py --move 2650.00 2673.40 --digits 2
 3. از این به بعد کافی است روی **یکی** از معاملات حد سود یا حد ضرر را با ماوس جابه‌جا کنید؛ اکسپرت همان را به بقیه کپی می‌کند و آن مقدار را **یادش می‌ماند** (معاملهٔ جدید بعدی هم همان را می‌گیرد). اگر عدد را دوباره در پنل تایپ کنید، برمی‌گردد به حالت «فاصله بر حسب پیپ».
 4. `BE arm = 200` یعنی وقتی میانگین گروه ۲۰۰ پیپ (۲۰ دلار) در سود رفت، حد ضرر همه روی **ورود + ۱۰ پیپ** می‌نشیند → گروه ریسک‌فری.
 5. `TRAIL` روشن است: از ۲۵۰ پیپ سود به بعد، هر ۳۰ پیپ سود جدید ۳۰ پیپ دیگر قفل می‌شود.
-6. **سیاست بستن (v1.13، بدون تغییر در v1.14):** اکسپرت به‌جز یک حالت، هیچ چیزی را از شدت فشار نمی‌بندد — اگر ضرر شناور **کل حساب** به **۶۰٪ موجودی** رسید، همه بسته و اکسپرت قفل می‌شود. از **۴۰٪** فقط **هشدار** می‌دهد (Alert + پوش + خط زرد پنل) و هیچ دستوری نمی‌فرستد. kill-switch (روی همان خط ۶۰٪)، بستن بر اساس مارجین‌لول و بستن خبری به‌صورت پیش‌فرض **خاموش‌اند**. از v1.14 هرکدام را می‌توانید با **کلیدهای پنل** روشن/خاموش کنید (بدون تغییر `Inputs`) و همان حالت هم ذخیره می‌شود.
+6. **سیاست بستن (v1.13، بدون تغییر در v1.14):** اکسپرت به‌جز یک حالت، هیچ چیزی را از شدت فشار نمی‌بندد — اگر ضرر شناور **کل حساب** به **۶۰٪ موجودی** رسید، همه بسته و اکسپرت قفل می‌شود. از **۴۰٪** فقط **هشدار** می‌دهد (Alert + پوش + خط زرد پنل) و هیچ دستوری نمی‌فرستد. kill-switch (روی همان خط ۶۰٪)، بستن بر اساس مارجین‌لول و بستن خبری به‌صورت پیش‌فرض **خاموش‌اند**. از v1.17 این‌ها فقط با `Inputs` تعیین می‌شوند (`InpEnableKillSwitch`، `InpEmergencyMarginLevelPct`،
+`InpEmergencyStepDown`، `InpNewsAction`) و پنل چیزی برای خاموش کردنشان ندارد؛ همان‌جا که تنظیم می‌شود،
+همان‌جا هم خوانده می‌شود.
 
 قبل از شمارهٔ ۲ می‌توانید یک بار با `InpDryRun=true` اجرا کنید و تب `Experts` را بخوانید تا دقیقاً ببینید چه سطحی می‌فرستد (بدون ارسال هیچ دستوری).
 
@@ -165,80 +201,57 @@ python3 tools/gold_pip_calc.py --move 2650.00 2673.40 --digits 2
 
 ## ۴) پنل روی نمودار
 
-پنل دو صفحه دارد: **صفحهٔ پایش** (اطلاعات گروه + دکمه‌ها + کادرهای عددی) و **صفحهٔ کلیدها**
-(روشن/خاموش کردن قابلیت‌ها، بدون باز کردن `Inputs`).
+پنل **یک کارت** است: هشت سطر گزارش، دو عدد قابل ویرایش و چهار دکمه. قانون‌ها در `Inputs`
+هستند، پس هیچ چیزی روی نمودار نیست که پیش از کار کردن اکسپرت باید عوض شود.
 
 ```
-GOLD BASKET GUARD          XAUUSD | pip = 0.100 (10 pt) | monitor
-group: 4 tickets (4 buy / 0 sell) vol 0.80 | USD
-avg BUY  2641.25  +32.4 pips
-avg SELL -
-basket P/L: 142.30  (swap -1.20)  |  eq 5342.10
-risk at SL: 150.00 (3.00% bal)  =  300.0 pips  |  10.00/pip
-SL 300.0 p -> 2611.25 | TP 500.0 p -> 2691.25
-risk-free: ON arm 200.0 p, lock 10.0 p, done 3 | trail ON
-news: clear (37 events checked, server time)
-margin 412.5% | free 4980.10 | day P/L -120.40 | dd 1.8% | float -12.4% bal
-mirror on | auto on | breaker 60% | warn 40% | dry off
-act: auto -> 4 ticket(s) SL 300.0 p / TP 500.0 p | stops 0 pt (+0 ad) | hedging
-loop 100 ms (max 9) | spread 25 pt | calendar ok
-[SL pips 300.0] [TP pips 500.0] [BE arm 200.0] [BE lock 10.0]
-[Trail 50.0] [SL money 0] [TP money 0] [part % 50]
-[APPLY TP+SL]  [APPLY SL]   [APPLY TP]
-[RISK-FREE NOW][TRAIL ON]   [CLEAR SL/TP]
-[CLOSE ALL]    [CLOSE LOSERS][CLOSE 50%]
-[NEWS ON]      [PAUSE / RUN][UNLOCK]
-[CLOSE WINNERS][SWITCHES 12][MINIMISE]
+GOLD BASKET GUARD        XAUUSD | pip 10 pt | auto | USD
+group: 4 (4 buy / 0 sell)  vol 0.80 lot  |  USD
+avg BUY 2641.25 (+32.4 p)  |  avg SELL - (+0.0 p)
+basket P/L 142.30  (swap -1.20)  |  equity 5342.10
+risk at SL 150.00 (3.00% bal) = 300.0 pips  |  10.00/pip
+SL 300.0 p -> 2611.25  |  TP 500.0 p -> 2691.25  |  stops 0 pt (+0)
+risk-free ON (arm 200, lock 10, done 3)  |  trail ON  |  news armed
+margin 413%  free 4980.10  |  float -12.4% bal  |  day -120.40
+loop 100 ms | cycle 3 ms (max 40) | sent 12, refused 0 | act: glued
+[SL pips 300.0] [TP pips 500.0]        keys 1-9, 0, [, ]
+[APPLY TP+SL][PAUSE / RUN][UNLOCK][CLOSE ALL]
 ```
 
-خط `risk at SL` می‌گوید اگر حد ضرر گروه بخورد دقیقاً چه مبلغی (و چند درصد موجودی) می‌رود؛ خط
-`news` وضعیت تقویم اقتصادی و نزدیک‌ترین رویداد را نشان می‌دهد و داخل پنجرهٔ خبر نارنجی می‌شود؛
-`float -NN% bal` همان عددی است که هشدار ۴۰٪ و بریکر ۶۰٪ روی آن نشسته‌اند.
+خط `risk at SL` می‌گوید اگر حد ضرر گروه بخورد دقیقاً چه مبلغی (و چند درصد موجودی) می‌رود؛ سطر
+آخر وضعیت **واقعی** حلقه را نشان می‌دهد (`loop` دوره‌ای است که واقعاً اجرا می‌شود، پس آرام‌شدن
+روی حساب بی‌پوزیشن دیده می‌شود) و اگر چیزی جلو فرستادن را گرفته باشد، همان‌جا نامش را می‌نویسد
+(`PAUSED`، `KILL/LOCK ACTIVE`، `sending cooldown N s`، `ALGO TRADING is disabled`).
 
-### ۴-الف) صفحهٔ کلیدها: هر قابلیت یک سوئیچ (جدید در ۱.۱۴)
+### ۴-الف) چه چیزی روی پنل «نیست» و چرا
 
-با دکمهٔ `SWITCHES 12` یا کلید `8` باز می‌شود. دوازده کلید، هر کدام با وضعیت **واقعی** خودش:
+در نسخهٔ ۱.۱۴ دوازده سوئیچ روی یک صفحهٔ دوم اضافه شد. در عمل هر سوئیچ همان `Input` را
+روشن/خاموش می‌کرد، یعنی **یک لایهٔ تکراری** که فقط سه چیز به همراه داشت: جای دیگری برای گم‌شدن
+وضعیت، کلیک اشتباهی، و `OFF*` که فقط توضیح می‌داد چرا نمی‌شود روشنش کرد. در ۱.۱۷ حذف شد:
 
-```
-GOLD BASKET GUARD          XAUUSD | pip = 0.100 (10 pt) | switches
-[1 MIRROR     ON ] [2 AUTO-APPLY  ON ]
-[3 RISK-FREE  ON ] [4 WARN        ON ]
-[5 KILL-SW   OFF ] [6 BREAKER     ON ]
-[7 DAILY    OFF* ] [8 MONEY EXIT OFF*]
-[9 SIZING   OFF* ] [- ADAPTIVE   ON  ]
-[0 ALERTS     ON ] [= DRY-RUN   OFF  ]
-[BACK]  [RESET UI]
-```
+- **هر قابلیت یک کلید دارد و آن هم `Input` است** — همان‌جا که در `.set` ذخیره می‌شود، در لاگ
+  می‌آید و در بک‌تست هم همان است.
+- **سطوح خودشان چسبیده می‌مانند** (`InpReapplyEveryCycle=true`)، پس `APPLY` یک دکمهٔ اضطراری است
+  نه یک گام روزانه.
+- **پنل کوچک و صفحهٔ دوم حذف شدند**؛ کارت هشت‌خطی از پنل کوچکِ سه‌خطی هم جمع‌وجورتر است.
+- تنها چیزی که روی خود پنل باقی مانده **دو عدد** است (`SL pips`، `TP pips`) چون تغییر فاصلهٔ
+  گروه وسط معامله سلیقه‌ای است، و **چهار دکمه** چون کارهای فوری‌اند نه تنظیمات.
+- از دست‌دادن این قابلیت‌ها: هیچ. هر دوازده سوئیچ قبلی با یک ورودی مشابه قابل بازسازی‌اند و
+  گیت انتشار وجودشان را تضمین می‌کند (`contract 43`).
 
-- قانون: **قابلیت اجرا می‌شود اگر `Inputs` اجازه بدهند و کلید هم روشن باشد.** خاموش کردن از پنل
-  همیشه ممکن است؛ روشن کردن فقط وقتی که حالت/آستانهٔ آن در `Inputs` تعریف شده باشد. اگر نباشد،
-  `OFF*` نشان داده می‌شود و کلیک فقط توضیح می‌نویسد (چرا خاموش است).
-- کلیدهای همین صفحه: `1-9`، `0`، `-`، `=` سوزنی‌اند (به ترتیب بالا)؛ `]` بازگشت، `[` بازگشت به
-  `Inputs` (پاک کردن ذخیرهٔ پنل).
-- `TRAIL`، `NEWS` و همهٔ اعداد تایپی هم در همین حالت می‌مانند: همه‌چیز در
-  `GlobalVariables` با پیشوند `GBG_<login>_<symbol>_` ذخیره می‌شود (خاموش: `InpPersistPanel=false`)
-  و بعد از بستن MT5 یا جابه‌جایی چارت برمی‌گردد. `RESET UI` آن را پاک می‌کند.
-  **از ۱.۱۶ `PAUSE` استثناست** و ذخیره نمی‌شود — تصادفی زدنِ کلید `0` نباید اکسپرت را تا
-  ابد خاموش نگه دارد.
-- `MINIMISE` (کلید `9`) پنل را سه‌خطی می‌کند: فقط گروه، درصد ریسک، آخرین اقدام + دکمهٔ بازگشت.
-- جدول کامل هر کلید، کاری که می‌کند و پیش‌شرطش در
-  [`docs/GoldBasketGuard-parameters.md`](docs/GoldBasketGuard-parameters.md) است.
+### ۴-ب) دکمه‌ها، کادرها و میان‌بُرها
 
-### ۴-ب) دکمه‌ها، کادرها و کلیدهای میانبر
-
-- کادرهای ویرایش‌پذیر: `SL pips`، `TP pips`، `BE arm`، `BE lock`، `Trail dist`،
-  `SL money`، `TP money`، `part %`. با `Enter` ذخیره می‌شود و اگر `AUTO-APPLY` روشن باشد همان
-  لحظه اعمال هم می‌شود.
-- کادرهای **پولی** واحدشان **ارز حساب** است (روی حساب سنتی: سنت) و با حجم زندهٔ گروه به پیپ
-  تبدیل می‌شوند؛ یک‌بارمصرف‌اند (بعد از تبدیل صفر می‌شوند تا با تایپ بعدی نجنگند). مثال: گروه
-  ۰٫۴۰ لات روی طلا = ۱۰ دلار به ازای هر پیپ → تایپ `150` در `SL money` یعنی حد ضرر ۱۵ پیپ.
-- `CLOSE ALL`، `CLOSE LOSERS`، `CLOSE WINNERS` و `CLOSE {part}%` برای ایمنی **دو بار کلیک**
-  می‌خواهند (ظرف ۶ ثانیه) و هر دکمه تایمر تأیید **مستقل** دارد.
-- `CLOSE {part}%` (پیش‌فرض ۵۰٪) از **هر** تیکت به همان نسبت حجم کم می‌کند، پس حد ضرر گروهی
-  سرِ جای خودش می‌ماند؛ درصد را می‌توانید در کادر `part %` تایپ کنید.
-- کلیدهای میانبر: `1` اعمال TP+SL، `2` فقط SL، `3` فقط TP، `4` ریسک‌فری فوری، `5` تریلینگ،
-  `6` گارد اخبار، `7` رفع قفل، `0` توقف/ادامه، `8` صفحهٔ کلیدها، `9` پنل کوچک. هر کلیک یک
-  چرخهٔ مدیریت را **بلافاصله** اجرا می‌کند، بدون انتظار برای تیک بعدی.
+- **چهار دکمه:** `APPLY TP+SL` (همان ارسال فوری سطوح؛ در حالت عادی لازم نیست)، `PAUSE / RUN`،
+  `UNLOCK` و `CLOSE ALL` (تنها دکمه‌ای که **دو کلیک** ظرف ۶ ثانیه می‌خواهد). هر کلیک یک چرخهٔ
+  مدیریت را **بلافاصله** اجرا می‌کند، پس نتیجه را همان لحظه می‌بینید.
+- **دو کادر:** `SL pips` و `TP pips`. با `Enter` ذخیره می‌شود و از آن به بعد هر چرخه همان فاصله
+  اعمال می‌شود (`InpReapplyEveryCycle`)؛ `0` یعنی «به SL/TP دست نزن».
+- **میان‌بُرها (هیچ‌کدام لازم نیستند):** `1` اعمال TP+SL، `2` فقط SL، `3` فقط TP، `4` ریسک‌فری
+  فوری، `5` تریلینگ، `6` گارد اخبار، `7` رفع قفل، `8` آلارم‌ها، `9` بستن همه (دو بار)، `0` توقف،
+  `-` پاک‌کردن SL/TP (دو بار)، `[` ریست پنل. همه از **همان کادرها** می‌خوانند، پس عددی که تایپ
+  کرده‌اید با شورتکات فراموش نمی‌شود.
+- **ذخیره:** تریلینگ، گارد اخبار، آلارم‌ها و دو عدد تایپی برای همین حساب و نماد در `GlobalVariables`
+  می‌مانند (`InpPersistPanel=false` خاموشش می‌کند) و `[` همه را به `Inputs` برمی‌گرداند.""
 
 ---
 
@@ -358,7 +371,9 @@ GOLD BASKET GUARD          XAUUSD | pip = 0.100 (10 pt) | switches
 | اکسپرت قفل شده و کار نمی‌کند | `UNLOCK` (یا کلید `7`) — پس از breaker (۶۰٪) یا حد ضرر روزانه طبیعی است. از ۱.۱۶ قفل پس از `InpEmergencyLockHours` ساعت **خودش** باز می‌شود |
 | بعد از مدتی هیچ دستوری نمی‌فرستد | خط آخر پنل را بخوانید: `PAUSED` (کلید `0`)، `KILL/LOCK ACTIVE` (کلید `7`)، `automatic sending on cooldown` (فیوز رد شدن‌ها؛ خودش تمام می‌شود و `APPLY` یک تلاش را رد می‌کند) یا `ALGO TRADING is disabled`. از ۱.۱۶ هیچ‌کدام از این‌ها بی‌صدا نیست |
 | لاگ پر از `modify rejected` است | سرور آن سطح را نمی‌پذیرد. اکسپرت از ۱.۱۶ همان سطح را `InpSendBackoffMs` تکرار نمی‌کند و بعد از `InpErrorFuseCount` رد شدن پشت سر هم خودش ساکت می‌شود؛ علت‌های معمول: `STOPS_LEVEL` بزرگ، `FREEZE_LEVEL`، بازار بسته، یا حسابی که اجازهٔ trading ندارد |
-| چیزی را نبست ولی باید می‌بست | پیش‌فرض فقط در **۶۰٪ ضرر شناور کل حساب** می‌بندد؛ kill-switch، مارجین‌لول و بستن خبری خاموش‌اند. سریع‌ترین راه روشن کردنشان کلید `5` (KILL-SW) یا `6` (BREAKER) در صفحهٔ کلیدهای پنل است؛ راه دیگر `InpEnableKillSwitch=true` یا `InpNewsAction=NEWS_CLOSE_GROUP` |
+| چیزی را نبست ولی باید می‌بست | پیش‌فرض فقط در **۶۰٪ ضرر شناور کل حساب** می‌بندد؛ kill-switch، مارجین‌لول و بستن خبری خاموش‌اند. از ۱.۱۷ فقط با `Inputs` روشن می‌شوند: `InpEnableKillSwitch=true`، `InpEmergencyMarginLevelPct=0` (یعنی خاموش؛ جای `0` عدد بگذارید)، `InpEmergencyStepDown`، یا `InpNewsAction=NEWS_CLOSE_GROUP` |
+| دکمه‌ای که می‌خواستم نیست | در ۱.۱۷ پنل عمداً کوچک است: از `Inputs` استفاده کنید یا میان‌بُر همان کار را بزنید (جدول §۴-ب). صفحهٔ ۱۲ سوئیچ و پنل کوچک حذف شدند چون همان `Input` را تکرار می‌کردند |
+| پنجرهٔ «دو بار کلیک» گیر می‌کرد | در ۱.۱۵/۱.۱۶ روی `TimeCurrent()` بود که با بسته‌شدن بازار می‌ایستد. از ۱.۱۷ روی ساعت میلی‌ثانیه‌ای ترمینال است، پس همیشه ۶ ثانیهٔ واقعی است |
 | فقط هشدار می‌دهد و نگرانم | طبیعی است: `InpRiskWarnPct=40` از ۴۰٪ به بعد Alarm می‌زند و خط پنل `float -NN% bal` را نشان می‌دهد؛ بستن تا ۶۰٪ انجام نمی‌شود |
 
 ---
@@ -371,13 +386,13 @@ python3 tools/gold_pip_calc.py --test                                          #
 python3 tools/make_feature_sheet.py                                            # ساخت تصویر قابلیت‌ها
 python3 tools/make_flow_sheet.py                                               # ساخت تصویر عملکرد
 bash tools/setup_render_env.sh                                                 # (یک‌بار) نصب Pillow + فونت Vazirmatn
-python3 tools/make_release.py --check-only                                     # ۳۳ بررسی قبل از انتشار
+python3 tools/make_release.py --check-only                                     # ۳۸ بررسی قبل از انتشار
 python3 tools/make_release.py                                                  # ساخت release/GoldBasketGuard + zip
 ```
 
-پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۳۳ بررسی پاس باشد**
+پوشهٔ `release/GoldBasketGuard/` فقط وقتی ساخته می‌شود که **هر ۳۸ بررسی پاس باشد**
 (لینت، تست منطق، تک‌فایل بودن، ASCII بودن، توازن آکولاد، یکتا بودن ورودی‌ها و
-**«قرارداد صفرتنظیم»**: ۴۴ ورودی که باید دقیقاً همان پیش‌فرض‌های آمادهٔ طلا باشند —
+**«قرارداد صفرتنظیم»**: ۴۳ ورودی که باید دقیقاً همان پیش‌فرض‌های آمادهٔ طلا باشند —
 اگر روزی کسی یک پیش‌فرض را عوض کند و اکسپرت دوباره به فایل `.set` نیاز پیدا کند،
 دروازهٔ ریلیز همان لحظه می‌شکند). در `manifest.txt` هم checksum هر فایل و هم لیست
 بررسی‌های پاس‌شده ثبت می‌شود.
@@ -389,7 +404,7 @@ python3 tools/make_release.py                                                  #
 ```
 MQL5/Experts/GoldBasketGuard/GoldBasketGuard.mq5   اکسپرت (تک‌فایل، بدون وابستگی)
 release/GoldBasketGuard/                           نسخهٔ نهایی + manifest + راهنمای نصب
-release/GoldBasketGuard-v1.16.zip                  همان پوشه، آمادهٔ دانلود
+release/GoldBasketGuard-v1.17.zip                  همان پوشه، آمادهٔ دانلود
 docs/GoldBasketGuard-parameters.md                 توضیح تک‌تک ورودی‌ها (فارسی)
 docs/GoldBasketGuard-features-fa.png               نقشهٔ گرافیکی قابلیت‌ها (فارسی)
 docs/GoldBasketGuard-flow-fa.png                   نقشهٔ گرافیکی عملکرد مدیریت سرمایه
@@ -418,6 +433,7 @@ The release-ready copy of the EA, the Persian parameter reference and both diagr
 - **cent or dollar account detected automatically** (account currency `USD`/`EUR`/… vs `USC`/`Euro Cent`/…), all money inputs converted, so one file works on every broker;
 - optional basket money take/stop, partial volume reduction, a 40% risk warning that closes nothing,
   and one automatic close-all: the account breaker at 60% of balance at risk, chart panel with editable fields, buttons and hotkeys;
+- **v1.17 tighter panel, hands-off by default** - the 12-switch setup page is gone. Every switch only mirrored one input, so it was a second place to lose the state and to mis-click; the Inputs are now the single switch per feature, and the panel is a readout: eight lines, two numbers (`SL pips`, `TP pips`) and four buttons (`APPLY`, `PAUSE / RUN`, `UNLOCK`, `CLOSE ALL`). `InpReapplyEveryCycle` defaults to on, so the group levels are re-applied every cycle and even APPLY is only an emergency override. Real fixes came with it: the two-click confirm window now runs on the terminal's millisecond clock instead of `TimeCurrent()` (which stands still when the market is closed, so a click before a quiet hour used to stay armed), the four per-button arm timers collapsed into one for the only destructive action, `PanelClearPage` invalidates the row cache, and the breaker gate now opens on any of its three arms (`InpEmergencyFloatLossPct`, `InpEmergencyMarginLevelPct`, `InpEmergencyStepDown`) instead of only the first. Cost of a cycle with five tickets: 202 -> 149 terminal calls, 39 -> 15 object writes, 3750 -> 3327 lines, 110 -> 108 inputs; the test suite grew to 138 checks and the release gate to 38;
 - **v1.16 reliability pass** - the "works for a while, then stops" report: a request the server refused is no longer repeated on every 100 ms cycle with four attempts and a `Sleep()` in between (that is exactly how a broker or the terminal ends up stopping an EA). A rejected level is held back per ticket (`InpSendBackoffMs`, doubling up to 60 s); a run of refusals pauses *automatic* sending behind a fuse (`InpErrorFuseCount`: 30 s, doubling to 300 s) while closing is never delayed and a manual `APPLY` buys one attempt through; retries now happen only for a price that moved, and with a fresh price. A stuck five-ticket cycle costs 5 requests per cycle instead of 20. The emergency lock expires on its own (in v1.15 a breaker trip stayed dead forever), `PAUSE` is no longer restored after a restart, a lost chart timer is re-armed by the next tick, and the panel status line always names what is blocking - `PAUSED`, `KILL/LOCK ACTIVE`, `sending cooldown N s`, `ALGO TRADING is disabled` - next to the loop period actually in force and `sent / refused` counters;
 - **v1.15 lightness pass** (nothing removed): one account snapshot per cycle shared by all guards and invalidated by every order sent, the panel repaints only when its content fingerprint changes (a quiet chart now writes zero chart objects instead of 43 per repaint), the management loop backs off to 1 Hz while the account holds no positions (`InpIdleRefreshMs`) and returns to 100 ms as soon as one opens, cheap group filters run before expensive ones, and terminal flags are read once in `OnInit`. Measured with the new `tools/mql5_cost.py`: 235 -> 201 terminal calls per cycle with five tickets, 1400 -> 126 calls per second on an idle chart, and `tools/make_release.py` now refuses to build a release that exceeds its cost budget;
 - **12 panel switches** (v1.14): mirror, auto-apply, risk-free, warning, kill switch, breaker, daily guard, money exits, risk sizing, adaptive stops, alerts and dry run are toggled on the chart itself; a feature turns off from the panel always, and turns on whenever its Inputs already carry the mode/threshold. Switch state, pause, trail, news and every typed number are remembered per account + symbol, with `RESET UI` to go back to Inputs;
